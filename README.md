@@ -1,4 +1,4 @@
-<h1 align="center">Hi 👋, I'm Arijit</h1>
+<h1 align="center">Hey there 👋, I'm Arijit</h1>
 <h3 align="center">Software developer from India, crafting clean code and innovative solutions. Passionate about building impactful projects and exploring new tech.</h3>
 
 <p align="left"> <img src="https://komarev.com/ghpvc/?username=d-arijit57&label=Profile%20views&color=0e75b6&style=flat" alt="d-arijit57" /> </p>
