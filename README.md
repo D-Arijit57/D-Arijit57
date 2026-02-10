@@ -1,5 +1,8 @@
 # 💫 About Me:
-🔭 I’m currently working on Frontend Tech (React, Next.js) and Machine Learning (TensorFlow, NLP).<br>👯 I’m looking to collaborate on full-stack projects, Hackathons - setting!<br>🌱 I’m currently learning Backend with Node.js/Express.js , MongoDB , Firebase.<br>💬 Ask me about DSA problems or Competitive Coding — I’ve solved 200+ problems on LeetCode/Codeforces!
+- I build end-to-end web apps with React/Next, Node/Express and MongoDB, then ship them to Vercel or AWS.
+<br>I’m comfortable across frontend, backend, CI/CD and deployments turning prototypes into production features.
+<br>Solved 250+ DSA problems and mainly focused on performance, security (JWT/RBAC) and clean, maintainable code.
+<br>A team player who writes docs, helps with testing/troubleshooting, and loves rolling up my sleeves to ship.
 
 
 ## 🌐 Socials:
