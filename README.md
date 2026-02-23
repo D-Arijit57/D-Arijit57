@@ -1,4 +1,4 @@
-# 💫 About Me:
+# 💫 About Me
 <br>🚀 I build end-to-end web apps with React/Next, Node/Express and MongoDB, then ship them to Vercel or AWS.
 <br>🧩 I’m comfortable across frontend, backend, CI/CD and deployments turning prototypes into production features.
 <br>💡 Solved 250+ DSA problems and mainly focused on performance, security (JWT/RBAC) and clean, maintainable code.
