@@ -101,12 +101,21 @@ def render(data):
     stats_h = 88
     canvas_h = TITLEBAR_H + TOP_LABEL_H + art_h + stats_h + PAD
 
+    flash_dur = CELL_DUR + 0.15
     css = f"""
-@keyframes cell {{
-  0%   {{ opacity: 0; transform: translateY(-6px); }}
-  100% {{ opacity: 1; transform: translateY(0); }}
+@keyframes pop {{
+  0%   {{ opacity: 0; transform: scale(.2); }}
+  60%  {{ opacity: 1; transform: scale(1.1); }}
+  100% {{ opacity: 1; transform: scale(1); }}
 }}
-.c {{ opacity: 0; animation: cell {CELL_DUR:.2f}s cubic-bezier(.2,.8,.2,1) both; }}
+@keyframes flash {{
+  0%   {{ filter: brightness(2.4); }}
+  45%  {{ filter: brightness(2.4); }}
+  100% {{ filter: brightness(1); }}
+}}
+.c {{ transform-box: fill-box; transform-origin: center; opacity: 0; animation: pop {CELL_DUR:.2f}s ease-out both; }}
+.g {{ animation: pop {CELL_DUR:.2f}s ease-out both, flash {flash_dur:.2f}s ease-out both; }}
+@media (prefers-reduced-motion: reduce) {{ .c {{ opacity: 1 !important; animation: none !important; }} }}
 """.strip()
 
     parts = [
@@ -138,7 +147,7 @@ def render(data):
         y = grid_top + wi * STEP + CELL * 0.78
         parts.append(f'<text x="{PAD}" y="{y:.1f}" fill="{MUTED}" font-size="9">{wname}</text>')
 
-    # the boxes -- each a rounded rect, diagonal slide-down reveal (once, freeze)
+    # the boxes -- each a rounded rect, diagonal pop-in + brightness-flash reveal (once, freeze)
     for ci, column in enumerate(grid):
         gx = grid_left + ci * STEP
         for ri, cell in enumerate(column):
@@ -148,8 +157,9 @@ def render(data):
             gy = grid_top + ri * STEP
             delay = ci * COL_T + ri * ROW_T
             plural = "s" if count != 1 else ""
+            cls = "c g" if lvl >= 1 else "c"
             parts.append(
-                f'<rect class="c" x="{gx}" y="{gy}" width="{CELL}" height="{CELL}" rx="2.5" '
+                f'<rect class="{cls}" x="{gx}" y="{gy}" width="{CELL}" height="{CELL}" rx="2.5" '
                 f'fill="{PALETTE[lvl]}" style="animation-delay:{delay:.3f}s">'
                 f'<title>{date_s}: {count} contribution{plural}</title></rect>'
             )
