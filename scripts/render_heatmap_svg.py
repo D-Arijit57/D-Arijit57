@@ -14,7 +14,7 @@ import os
 
 HERE = os.path.dirname(__file__)
 IN_PATH = os.path.join(HERE, "..", "data", "contributions.json")
-OUT_PATH = os.path.join(HERE, "..", "contrib-heatmap.svg")
+OUT_PATH = os.path.join(HERE, "..", "assets", "contrib-heatmap.svg")
 
 # GitHub-ish green ramp: empty -> brightest. Level 5 is a brighter neon top end.
 PALETTE = ["#161b22", "#0e4429", "#006d32", "#26a641", "#39d353", "#69f0a0"]
@@ -170,6 +170,7 @@ def render(data):
     cs = data["current_streak"]["length"]
     ls = data["longest_streak"]["length"]
     total = data["total_contributions"]
+    active = data["active_days"]
     best = data["best_day"]
     rng = data["range"]
 
@@ -184,7 +185,9 @@ def render(data):
     parts.append(f'<text x="{PAD}" y="{ly}" font-size="13" fill="{MUTED}">current streak '
                  f'<tspan fill="{ACCENT}" font-weight="700">{cs} days</tspan>'
                  f'<tspan fill="{MUTED}">   &#183;   longest </tspan>'
-                 f'<tspan fill="{ACCENT}" font-weight="700">{ls} days</tspan></text>')
+                 f'<tspan fill="{ACCENT}" font-weight="700">{ls} days</tspan>'
+                 f'<tspan fill="{MUTED}">   &#183;   active </tspan>'
+                 f'<tspan fill="{ACCENT}" font-weight="700">{active} days</tspan></text>')
     parts.append(f'<text x="{canvas_w - PAD}" y="{ly}" font-size="12" fill="{MUTED}" text-anchor="end">'
                  f'best day <tspan fill="{GOLD}" font-weight="700">{best["count"]}</tspan> on {best["date"]}</text>')
 
