@@ -12,7 +12,7 @@
 <tr>
 
 <td valign="top">
-<img src="./assets/arijit-ascii.svg" width="370"/>
+<img src="./assets/ascii.svg" width="370"/>
 </td>
 
 <td valign="top">
