@@ -49,6 +49,14 @@ import numpy as np
 Rect = Tuple[int, int, int, int, Tuple[int, int, int]]
 Mask = np.ndarray
 
+# Every idle animation below is offset by this many seconds, so the very first
+# thing a viewer sees is the one-shot reveal (make_backend_lab.REVEAL, which
+# ends at the same instant) rather than a mid-cycle LED blink racing the fade-
+# in. The reveal and this offset are two names for the same number by design;
+# keeping the constant here (rather than duplicated in make_backend_lab.py)
+# means there is exactly one place to change it.
+REVEAL_END: float = 1.60
+
 # ---- target geometry -------------------------------------------------------
 # All boxes are (x0, y0, x1, y1) in 320-grid coordinates, read off the traced
 # artwork with a labelled overlay (see the build notes in the report).
@@ -63,8 +71,8 @@ HOLO_NODES: Tuple[Tuple[int, int, int, int], ...] = (
 )
 LED_REGIONS = ((112, 162, 200, 222), (244, 32, 282, 84))
 CURSOR_BOX = (267, 281, 275, 283)
-LAMPS = (("pendant", (136, 28, 170, 62), 6.2, 0.0),
-         ("desk", (274, 108, 308, 150), 7.4, 2.1))
+LAMPS = (("pendant", (136, 28, 170, 62), 6.2, REVEAL_END + 0.0),
+         ("desk", (274, 108, 308, 150), 7.4, REVEAL_END + 2.1))
 WINDOW_REGIONS = ((104, 36, 134, 90), (176, 36, 190, 90), (104, 36, 190, 46))
 LOGS_PANEL = (198, 74, 250, 126)
 LOGS_LINE = (200, 110, 248, 113)   # the last "200 OK" -- reads as a new log arriving
@@ -75,18 +83,18 @@ CODE_LINE = (242, 128, 292, 132)   # one line of the code listing
 # a skin mask; the designer's is the small 6px blob of the raised pointing hand,
 # deliberately tight so the tan whiteboard behind it cannot be picked up.
 HANDS: Dict[str, Tuple[Tuple[int, int, int, int], float, float]] = {
-    "builder":  ((155, 92, 168, 103), 2.6, 0.0),
-    "debugger": ((236, 148, 250, 160), 3.1, 1.3),
-    "learner":  ((72, 200, 86, 213), 4.3, 0.6),
-    "engineer": ((206, 203, 222, 213), 3.8, 2.4),
-    "designer": ((65, 140, 71, 146), 4.9, 3.2),
+    "builder":  ((155, 92, 168, 103), 2.6, REVEAL_END + 0.0),
+    "debugger": ((236, 148, 250, 160), 3.1, REVEAL_END + 1.3),
+    "learner":  ((72, 200, 86, 213), 4.3, REVEAL_END + 0.6),
+    "engineer": ((206, 203, 222, 213), 3.8, REVEAL_END + 2.4),
+    "designer": ((65, 140, 71, 146), 4.9, REVEAL_END + 3.2),
 }
 
 # packets: (class, start x, start y, dx, dy, steps, duration, delay)
 PACKETS: Tuple[Tuple[str, int, int, int, int, int, float, float], ...] = (
-    ("pk-stem",  152, 125,   0,  6, 6, 2.4, 0.0),
-    ("pk-left",  150, 132, -12,  4, 4, 2.8, 1.6),
-    ("pk-right", 156, 132,  12,  4, 4, 3.1, 3.9),
+    ("pk-stem",  152, 125,   0,  6, 6, 2.4, REVEAL_END + 0.0),
+    ("pk-left",  150, 132, -12,  4, 4, 2.8, REVEAL_END + 1.6),
+    ("pk-right", 156, 132,  12,  4, 4, 3.1, REVEAL_END + 3.9),
 )
 
 
@@ -134,23 +142,30 @@ def holo_mask(a: np.ndarray) -> Mask:
     return _box((G > 110) & (G > R + 30) & (G > B + 70), HOLO_REGION, a)
 
 
-def led_masks(a: np.ndarray) -> List[Mask]:
-    """Small saturated clusters only.
+# LED_REGIONS[0] is the server-core drum (reveal tier rv-core); [1] is the
+# wall-mounted rack (part of the room's fixtures, tier rv-fixtures). LEDs need
+# to reveal with their own housing, not as one undifferentiated group, so
+# led_masks tags each cluster with the tier it belongs to.
+LED_REGION_TIER = ("rv-core", "rv-fixtures")
+
+
+def led_masks(a: np.ndarray) -> List[Tuple[str, Mask]]:
+    """Small saturated clusters only, each tagged with its reveal tier.
 
     The size cap is what separates a status LED from the core's glowing pool --
     the pool is one huge bright component and would otherwise be swept up and
     made to blink, which would be very wrong.
     """
     bright = (a.max(2) > 95) & ((a.max(2) - a.min(2)) > 50)
-    out: List[Mask] = []
-    for box in LED_REGIONS:
+    out: List[Tuple[str, Mask]] = []
+    for box, tier in zip(LED_REGIONS, LED_REGION_TIER):
         reg = _box(bright, box, a)
         for pix in _comps(reg):
             if len(pix) <= 6:
                 m = _blank(a)
                 for y, x in pix:
                     m[y, x] = True
-                out.append(m)
+                out.append((tier, m))
     return out
 
 
@@ -378,9 +393,22 @@ def css(led_specs: Sequence[Tuple[float, float]], win_specs: Sequence[Tuple[floa
 
 
 def build_animation(a: np.ndarray, rects: List[Rect]):
-    """Lift animated pixels out of `rects`.
+    """Lift animated pixels out of `rects`, bucketed by reveal tier.
 
-    Returns (static remainder, animated group markup, stylesheet, additive)
+    Every idle-animated overlay (hologram struts and nodes, LEDs, cursor, log/
+    code lines, lamps, window lights, hand frames, packets, and the backing
+    behind all of them) is emitted grouped under the SAME reveal tier as the
+    static artwork it sits on top of -- "rv-core" for the drum's own LEDs,
+    "rv-holo" for the hologram, "rv-fixtures" for the wall rack/lamps/window/
+    terminal text, "rv-chars" for hands. Without this, the reveal (built in
+    make_backend_lab.py) would only fade in the STATIC leftover pixels of each
+    region while every animated pixel -- which is most of what makes the core
+    and hologram visually distinctive -- stayed permanently at full opacity
+    from t=0, defeating the reveal entirely. This was caught by simulating the
+    reveal frame-by-frame rather than by eye: the hologram was fully bright in
+    the very first frame.
+
+    Returns (static remainder, {tier: [group markup]}, stylesheet, additive)
     where `additive` is every rectangle this layer *adds* to the document --
     the backing and the hands' second frame. The build compares
     remainder + lifted against the original trace, and `additive` against this
@@ -388,14 +416,15 @@ def build_animation(a: np.ndarray, rects: List[Rect]):
     pattern-matching the emitted markup.
     """
     rnd = random.Random(7)
-    groups: List[str] = []
+    tier_groups: Dict[str, List[str]] = {"rv-core": [], "rv-holo": [], "rv-fixtures": [], "rv-chars": []}
+    tier_faded: Dict[str, Mask] = {t: _blank(a) for t in tier_groups}
     rest = rects
-    faded = _blank(a)   # union of everything that will drop below opacity 1
+    additive: List[Rect] = []
 
-    # --- hologram: nodes first, then the connecting lines ------------------
+    # --- hologram: nodes first, then the connecting lines -------------------
     holo = holo_mask(a)
     node_durs = (3.2, 3.7, 4.1, 4.6, 5.0)
-    node_delays = (0.0, 1.1, 2.3, 0.7, 3.1)
+    node_delays = tuple(REVEAL_END + d for d in (0.0, 1.1, 2.3, 0.7, 3.1))
     claimed = _blank(a)
     for i, box in enumerate(HOLO_NODES):
         x0, y0, x1, y1 = box
@@ -404,81 +433,85 @@ def build_animation(a: np.ndarray, rects: List[Rect]):
         claimed |= m
         lifted, rest = lift(rest, m)
         if lifted:
-            mark(faded, lifted)
-            groups.append(group_svg(
+            mark(tier_faded["rv-holo"], lifted)
+            tier_groups["rv-holo"].append(group_svg(
                 lifted, f"anim-holo-node-{i}", "node",
                 f"animation-duration:{node_durs[i]}s;animation-delay:{node_delays[i]}s"))
     lines_mask = holo & ~claimed
     lifted, rest = lift(rest, lines_mask)
     if lifted:
-        mark(faded, lifted)
-        groups.append(group_svg(lifted, "anim-holo-lines", "holo"))
+        mark(tier_faded["rv-holo"], lifted)
+        tier_groups["rv-holo"].append(group_svg(lifted, "anim-holo-lines", "holo",
+                                 f"animation-delay:{REVEAL_END}s"))
 
-    # --- server + rack LEDs -------------------------------------------------
-    led_bodies: List[str] = []
-    for i, m in enumerate(led_masks(a)):
+    # --- server + rack LEDs, each tagged with its own housing's tier --------
+    led_bodies: Dict[str, List[str]] = {"rv-core": [], "rv-fixtures": []}
+    for i, (tier, m) in enumerate(led_masks(a)):
         lifted, rest = lift(rest, m)
         if not lifted:
             continue
-        mark(faded, lifted)
+        mark(tier_faded[tier], lifted)
         # most LEDs breathe; a minority actually blink, so the rack reads as
         # operational rather than as a string of fairy lights
         blink = rnd.random() < 0.42
         dur = round(rnd.uniform(1.5, 4.0), 2)
-        delay = round(rnd.uniform(0.0, 4.0), 2)
-        led_bodies.append(group_svg(
+        delay = round(REVEAL_END + rnd.uniform(0.0, 4.0), 2)
+        led_bodies[tier].append(group_svg(
             lifted, f"anim-led-{i}", "led" if blink else "ledSoft",
             f"animation-duration:{dur}s;animation-delay:{delay}s"))
-    if led_bodies:
-        groups.append(f'<g id="anim-leds">{"".join(led_bodies)}</g>')
+    for tier, bodies in led_bodies.items():
+        if bodies:
+            tier_groups[tier].append(f'<g id="anim-leds-{tier}">{"".join(bodies)}</g>')
 
-    # --- terminal cursor ----------------------------------------------------
+    # --- terminal cursor, one log line, one code line -- all in the fixtures
+    # tier alongside the panels they belong to -------------------------------
     cm = _blank(a)
     x0, y0, x1, y1 = CURSOR_BOX
     cm[y0:y1, x0:x1] = True
     lifted, rest = lift(rest, cm)
     if lifted:
-        mark(faded, lifted)
-        groups.append(group_svg(lifted, "anim-cursor", "cursor"))
+        mark(tier_faded["rv-fixtures"], lifted)
+        tier_groups["rv-fixtures"].append(group_svg(lifted, "anim-cursor", "cursor",
+                                 f"animation-delay:{REVEAL_END}s"))
 
-    # --- one log line and one code line -------------------------------------
     lm = panel_text_mask(a, LOGS_PANEL, LOGS_LINE)
     lifted, rest = lift(rest, lm)
     if lifted:
-        mark(faded, lifted)
-        groups.append(group_svg(lifted, "anim-logline", "logline"))
+        mark(tier_faded["rv-fixtures"], lifted)
+        tier_groups["rv-fixtures"].append(group_svg(lifted, "anim-logline", "logline",
+                                 f"animation-delay:{REVEAL_END}s"))
     cmm = panel_text_mask(a, CODE_PANEL, CODE_LINE)
     lifted, rest = lift(rest, cmm)
     if lifted:
-        mark(faded, lifted)
-        groups.append(group_svg(lifted, "anim-codeline", "codeline"))
+        mark(tier_faded["rv-fixtures"], lifted)
+        tier_groups["rv-fixtures"].append(group_svg(lifted, "anim-codeline", "codeline",
+                                 f"animation-delay:{REVEAL_END}s"))
 
-    # --- lamps --------------------------------------------------------------
+    # --- lamps ----------------------------------------------------------------
     for name, box, dur, delay in LAMPS:
         lmask = lamp_mask(a, box)
         lifted, rest = lift(rest, lmask)
         if lifted:
-            mark(faded, lifted)
-            groups.append(group_svg(
+            mark(tier_faded["rv-fixtures"], lifted)
+            tier_groups["rv-fixtures"].append(group_svg(
                 lifted, f"anim-lamp-{name}", "lamp",
                 f"animation-duration:{dur}s;animation-delay:{delay}s"))
 
-    # --- window lights ------------------------------------------------------
+    # --- window lights ----------------------------------------------------
     win_bodies: List[str] = []
     for i, m in enumerate(window_masks(a)):
         lifted, rest = lift(rest, m)
         if not lifted:
             continue
-        mark(faded, lifted)
+        mark(tier_faded["rv-fixtures"], lifted)
         win_bodies.append(group_svg(
             lifted, f"anim-win-{i}", "win",
             f"animation-duration:{round(rnd.uniform(5.0, 10.0), 2)}s;"
-            f"animation-delay:{round(rnd.uniform(0.0, 8.0), 2)}s"))
+            f"animation-delay:{round(REVEAL_END + rnd.uniform(0.0, 8.0), 2)}s"))
     if win_bodies:
-        groups.append(f'<g id="anim-window">{"".join(win_bodies)}</g>')
+        tier_groups["rv-fixtures"].append(f'<g id="anim-window">{"".join(win_bodies)}</g>')
 
     # --- hands: additive two-frame patches (base layer untouched) -----------
-    additive: List[Rect] = []
     hand_bodies: List[str] = []
     for name, (box, dur, delay) in HANDS.items():
         m = skin_mask(a, box)
@@ -491,9 +524,12 @@ def build_animation(a: np.ndarray, rects: List[Rect]):
             frame2, f"anim-hand-{name}", "tap",
             f"animation-name:{kind};animation-duration:{dur}s;animation-delay:{delay}s"))
     if hand_bodies:
-        groups.append(f'<g id="anim-hands">{"".join(hand_bodies)}</g>')
+        tier_groups["rv-chars"].append(f'<g id="anim-hands">{"".join(hand_bodies)}</g>')
+    # the hands' second frame is new geometry drawn only at animation time, so
+    # it has nothing behind it to fade from black -- it is not part of `faded`
+    # and gets no backing rect.
 
-    # --- data packets (the only new geometry) -------------------------------
+    # --- data packets (the only other new geometry) --------------------------
     holo_px = a[holo]
     pkt_col = "#b6f13c"
     if len(holo_px):
@@ -506,10 +542,16 @@ def build_animation(a: np.ndarray, rects: List[Rect]):
             f'<rect class="pk" x="{px_}" y="{py}" width="2" height="2" fill="{pkt_col}" '
             f'style="--s:{steps};animation-name:{name};animation-duration:{dur}s;'
             f'animation-delay:{delay}s"/>')
-    groups.append(f'<g id="anim-packets">{"".join(pk)}</g>')
+    tier_groups["rv-holo"].append(f'<g id="anim-packets">{"".join(pk)}</g>')
 
-    back = backing_rects(a, faded)
-    if back:
-        groups.insert(0, group_svg(back, "anim-backing"))
-        additive.extend(back)
-    return rest, groups, css((), ()), additive
+    # backing, computed and inserted per tier so it reveals in lockstep with
+    # the foreground pixels it sits under -- a single global backing would
+    # otherwise show the core's LED backing at rv-core's earlier delay while
+    # the hologram's own backing (rv-holo, later) is still fading in.
+    for tier, fmask in tier_faded.items():
+        back = backing_rects(a, fmask)
+        if back:
+            tier_groups[tier].insert(0, group_svg(back, f"anim-backing-{tier}"))
+            additive.extend(back)
+
+    return rest, tier_groups, css((), ()), additive

@@ -133,89 +133,116 @@ def path_rects(d: str) -> List[Tuple[int, int, int, int]]:
 
 
 def hexrgb(c: str) -> Tuple[int, int, int]:
+    """#rrggbb, and the #rgb shorthand the backdrop rect uses."""
+    if len(c) == 4:
+        return tuple(int(c[i] * 2, 16) for i in (1, 2, 3))
     return tuple(int(c[i:i + 2], 16) for i in (1, 3, 5))
 
 
-class Element:
-    def __init__(self, rects, colors, decls):
-        self.rects = rects
-        self.colors = colors
-        self.decls = decls
+def _walk_count(node):
+    yield node
+    for c in node.children:
+        yield from _walk_count(c)
 
 
-def parse_svg(svg: str):
-    style = re.search(r"<style>(.*?)</style>", svg, re.S)
-    style = style.group(1) if style else ""
+class Node:
+    """One <g>, <path> or <rect>, with its children (for <g>)."""
+    __slots__ = ("tag", "attrs", "children", "rects", "colors")
+
+    def __init__(self, tag: str, attrs: Dict[str, str]):
+        self.tag = tag
+        self.attrs = attrs
+        self.children: List["Node"] = []
+        self.rects: List[Tuple[int, int, int, int]] = []
+        self.colors: List[Tuple[int, int, int]] = []
+
+
+def parse_svg(svg: str) -> Tuple[Node, Dict]:
+    """Build a real tree, not a flat element list.
+
+    This matters as of the reveal layer: each region's base content and its
+    idle-animated overlays are now nested inside one tier wrapper
+    (`<g class="rv rv-core">`) so the wrapper's fade and the child's own idle
+    pulse compose the way a browser actually composites nested opacity -- by
+    multiplication. A flat, single-level parse (the original version of this
+    script) cannot see that nesting and either double-counts or ignores one of
+    the two animations; this walks the tree and multiplies alpha / adds
+    translation down through however many levels are present.
+    """
+    style_m = re.search(r"<style>(.*?)</style>", svg, re.S)
+    style = style_m.group(1) if style_m else ""
     kf, classes = parse_keyframes(style), parse_classes(style)
 
-    elements: List[Element] = []
-    pos = 0
-    # walk top-level groups in document order
-    for m in re.finditer(r'<g id="([^"]+)"([^>]*)>', svg):
-        gid, attrs = m.group(1), m.group(2)
-        # find this group's extent (handles one level of nesting)
-        start = m.end()
-        depth = 1
-        i = start
-        while depth:
-            nxt = re.search(r"<g\b[^>]*>|</g>", svg[i:])
-            if not nxt:
-                break
-            depth += 1 if nxt.group(0).startswith("<g") else -1
-            i += nxt.end()
-        body = svg[start:i]
-        if re.search(r'<g\b', body):
-            continue  # container; its children are visited separately
-        cls = re.search(r'class="([^"]+)"', attrs)
-        inline = re.search(r'style="([^"]+)"', attrs)
-        decls: Dict[str, str] = {}
-        for c in (cls.group(1).split() if cls else []):
-            decls.update(expand_shorthand(classes.get(c, {})))
-        if inline:
-            for part in inline.group(1).split(";"):
-                if ":" in part:
-                    k, v = part.split(":", 1)
-                    decls[k.strip()] = v.strip()
-        rects, colors = [], []
-        for pm in re.finditer(r'<path fill="(#[0-9a-f]{6})" d="([^"]+)"', body):
-            for r in path_rects(pm.group(2)):
-                rects.append(r)
-                colors.append(hexrgb(pm.group(1)))
-        if rects:
-            elements.append(Element(rects, colors, decls))
+    def attrs_of(tag_src: str) -> Dict[str, str]:
+        return {k: v for k, v in re.findall(r'([\w-]+)="([^"]*)"', tag_src)}
 
-    for rm in re.finditer(r'<rect class="([^"]+)"([^>]*)/>', svg):
-        attrs = rm.group(2)
-        g = lambda k: re.search(rf'{k}="([^"]+)"', attrs)
-        decls: Dict[str, str] = {}
-        for c in rm.group(1).split():
-            decls.update(expand_shorthand(classes.get(c, {})))
-        st = g("style")
-        if st:
-            for part in st.group(1).split(";"):
-                if ":" in part:
-                    k, v = part.split(":", 1)
-                    decls[k.strip()] = v.strip()
-        x, y = int(g("x").group(1)), int(g("y").group(1))
-        w, h = int(g("width").group(1)), int(g("height").group(1))
-        elements.append(Element([(x, y, w, h)], [hexrgb(g("fill").group(1))], decls))
-    return elements, kf
+    root = Node("root", {})
+    stack = [root]
+    for m in re.finditer(r'<g\b[^>]*>|</g>|<path\b[^>]*/>|<rect\b[^>]*/>', svg):
+        tok = m.group(0)
+        if tok == "</g>":
+            if len(stack) > 1:
+                stack.pop()
+            continue
+        if tok.startswith("<g"):
+            node = Node("g", attrs_of(tok))
+            stack[-1].children.append(node)
+            stack.append(node)
+            continue
+        # self-closing <path .../> or <rect .../>
+        a = attrs_of(tok)
+        node = Node("path" if tok.startswith("<path") else "rect", a)
+        if node.tag == "path":
+            fill = a.get("fill", "#000000")
+            for r in path_rects(a.get("d", "")):
+                node.rects.append(r)
+                node.colors.append(hexrgb(fill))
+        else:
+            x, y = int(float(a.get("x", 0))), int(float(a.get("y", 0)))
+            w, h = int(float(a.get("width", 0))), int(float(a.get("height", 0)))
+            node.rects.append((x, y, w, h))
+            node.colors.append(hexrgb(a.get("fill", "#000000")))
+        stack[-1].children.append(node)
+    return root, {"kf": kf, "classes": classes}
 
 
-def render(elements, kf, t: float) -> np.ndarray:
-    buf = np.zeros((GRID, GRID, 3), float)
-    for el in elements:
-        d = el.decls
-        alpha, dx, dy = 1.0, 0, 0
-        name = d.get("animation-name")
-        if name and name in kf:
-            dur = seconds(d.get("animation-duration")) or 1.0
-            delay = seconds(d.get("animation-delay"))
-            p = ((t - delay) / dur) % 1.0
-            if t < delay:
-                p = 0.0
-            fnraw = d.get("animation-timing-function", "linear")
-            sm = re.search(r"--s:\s*(\d+)", ";".join(f"{k}:{v}" for k, v in d.items()))
+def _own_decls(node: "Node", classes: Dict[str, Dict[str, str]]) -> Dict[str, str]:
+    decls: Dict[str, str] = {}
+    for c in node.attrs.get("class", "").split():
+        decls.update(expand_shorthand(classes.get(c, {})))
+    style_attr = node.attrs.get("style")
+    if style_attr:
+        for part in style_attr.split(";"):
+            if ":" in part:
+                k, v = part.split(":", 1)
+                decls[k.strip()] = v.strip()
+    return decls
+
+
+def _own_state(decls: Dict[str, str], kf: Dict, t: float) -> Tuple[float, int, int]:
+    """This node's OWN (alpha, dx, dy) at time t -- before composing with any
+    ancestor. Same animation/keyframe evaluation as before, just factored out
+    so the tree walk can call it once per node."""
+    alpha, dx, dy = 1.0, 0, 0
+    name = decls.get("animation-name")
+    count_raw = decls.get("animation-iteration-count", "infinite")
+    finite = count_raw != "infinite"
+    count = float(count_raw) if finite else None
+    if name and name in kf:
+        dur = seconds(decls.get("animation-duration")) or 1.0
+        delay = seconds(decls.get("animation-delay"))
+        elapsed = t - delay
+        if finite and elapsed >= count * dur:
+            # Animation finished. Without 'forwards'/'both' fill-mode the
+            # element reverts to its non-animated style -- opacity:1 unless
+            # this node's own (non-animation) declarations say otherwise.
+            if "opacity" in decls:
+                alpha = float(decls["opacity"])
+        else:
+            p = 0.0 if elapsed < 0 else (elapsed / dur) if finite else ((elapsed / dur) % 1.0)
+            p = min(1.0, p)
+            fnraw = decls.get("animation-timing-function", "linear")
+            sm = re.search(r"--s:\s*(\d+)", ";".join(f"{k}:{v}" for k, v in decls.items()))
             p = ease(p, fnraw, int(sm.group(1)) if sm else 1)
             vals = sample(kf[name], p)
             if "opacity" in vals:
@@ -224,36 +251,58 @@ def render(elements, kf, t: float) -> np.ndarray:
                 mm = re.search(r"translate\(\s*(-?[\d.]+)px\s*,\s*(-?[\d.]+)px\s*\)", vals["transform"])
                 if mm:
                     dx, dy = int(round(float(mm.group(1)))), int(round(float(mm.group(2))))
-        elif "opacity" in d:
-            alpha = float(d["opacity"])
-        if alpha <= 0:
-            continue
-        for (x, y, w, h), col in zip(el.rects, el.colors):
-            x += dx
-            y += dy
-            x0, y0 = max(0, x), max(0, y)
-            x1, y1 = min(GRID, x + w), min(GRID, y + h)
-            if x1 <= x0 or y1 <= y0:
-                continue
-            region = buf[y0:y1, x0:x1]
-            buf[y0:y1, x0:x1] = region * (1 - alpha) + np.array(col, float) * alpha
+    elif "opacity" in decls:
+        alpha = float(decls["opacity"])
+    return alpha, dx, dy
+
+
+def render(root: Node, ctx: Dict, t: float) -> np.ndarray:
+    """Depth-first walk, composing opacity by multiplication and translation
+    by addition through nesting -- exactly how a browser composites nested
+    CSS opacity/transform, and exact (not approximate) here because every
+    transform in this file is a pure translate(), which commutes."""
+    kf, classes = ctx["kf"], ctx["classes"]
+    buf = np.zeros((GRID, GRID, 3), float)
+
+    def walk(node: Node, alpha: float, dx: int, dy: int) -> None:
+        if node.tag != "root":
+            decls = _own_decls(node, classes)
+            la, ldx, ldy = _own_state(decls, kf, t)
+            alpha *= la
+            dx += ldx
+            dy += ldy
+            if alpha <= 0:
+                return
+        if node.rects:
+            for (x, y, w, h), col in zip(node.rects, node.colors):
+                x0, y0 = max(0, x + dx), max(0, y + dy)
+                x1, y1 = min(GRID, x + dx + w), min(GRID, y + dy + h)
+                if x1 <= x0 or y1 <= y0:
+                    continue
+                region = buf[y0:y1, x0:x1]
+                buf[y0:y1, x0:x1] = region * (1 - alpha) + np.array(col, float) * alpha
+        for child in node.children:
+            walk(child, alpha, dx, dy)
+
+    walk(root, 1.0, 0, 0)
     return buf.round().astype(np.uint8)
 
 
 def main() -> None:
     svg = SVG.read_text()
-    elements, kf = parse_svg(svg)
-    print(f"parsed {len(elements)} drawable elements, {len(kf)} keyframe sets")
+    root, ctx = parse_svg(svg)
+    n_nodes = sum(1 for _ in _walk_count(root))
+    print(f"parsed {n_nodes} nodes, {len(ctx['kf'])} keyframe sets")
 
     if len(sys.argv) > 1:
         t = float(sys.argv[1])
-        Image.fromarray(render(elements, kf, t)).resize((640, 640), Image.NEAREST) \
+        Image.fromarray(render(root, ctx, t)).resize((640, 640), Image.NEAREST) \
             .save(OUT / f"frame-{t:.2f}.png")
         print("wrote", OUT / f"frame-{t:.2f}.png")
         return
 
     times = [round(i * 15 / 12, 2) for i in range(12)]
-    frames = [render(elements, kf, t) for t in times]
+    frames = [render(root, ctx, t) for t in times]
 
     sheet = Image.new("RGB", (4 * 320 + 15, 3 * 320 + 10), (10, 12, 16))
     for i, f in enumerate(frames):

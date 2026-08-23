@@ -83,6 +83,38 @@ DESPECKLE_ROUNDS: int = 2
 # that encloses it -- `lamp` sits inside `window`, and listing it second left it
 # empty. Assignment order has no effect on rendering: the rectangles are
 # disjoint, so regrouping them cannot change a pixel.
+# Reveal tiers. The scene fades up in depth order on page load; each tier is a
+# plain opacity ramp over an opaque black backdrop, so the art emerges from
+# darkness rather than from the page background (which would flash white on
+# GitHub's light theme). No blur, no scaling, no transforms -- crispEdges holds.
+REVEAL: Tuple[Tuple[str, float, float], ...] = (   # class, delay, duration
+    ("rv-frame",    0.00, 0.50),
+    ("rv-room",     0.15, 0.65),
+    ("rv-fixtures", 0.30, 0.70),
+    ("rv-chars",    0.40, 0.70),
+    ("rv-core",     0.55, 0.75),
+    ("rv-holo",     0.75, 0.80),
+)
+# The last tier finishes at 0.75 + 0.80 = 1.55s; anim.REVEAL_END (1.60s) is the
+# single canonical cutoff every idle animation's delay is offset by, so idle
+# motion cannot be seen racing the fade-in. Sanity-checked at import time
+# below rather than trusted to stay in sync by hand.
+assert anim.REVEAL_END >= REVEAL[-1][1] + REVEAL[-1][2], (
+    "anim.REVEAL_END must be >= the last reveal tier's end")
+
+TIER: Dict[str, str] = {
+    "scene-frame": "rv-frame", "scene-room": "rv-room",
+    "board-design": "rv-fixtures", "window": "rv-fixtures", "lamp": "rv-fixtures",
+    "panel-status": "rv-fixtures", "panel-logs": "rv-fixtures",
+    "panel-request": "rv-fixtures", "panel-optimize": "rv-fixtures",
+    "panel-terminal": "rv-fixtures", "monitor-code": "rv-fixtures",
+    "char-builder": "rv-chars", "char-designer": "rv-chars", "char-debugger": "rv-chars",
+    "char-learner": "rv-chars", "char-engineer": "rv-chars",
+    "server-core": "rv-core", "hologram": "rv-holo",
+}
+# the room's interior opening; anything wholly outside it is the stone frame
+INTERIOR = (30, 34, 288, 280)
+
 REGIONS: Tuple[Tuple[str, int, int, int, int], ...] = (
     ("hologram",        120, 100, 190, 178),
     ("server-core",     110, 136, 202, 224),
@@ -163,18 +195,54 @@ def region_of(x: int, y: int, w: int, h: int) -> str:
     return "scene"
 
 
-def render_svg(rects, extra: Sequence[str] = (), style: str = "") -> str:
+def reveal_css() -> str:
+    """`backwards`, and no resting opacity:0 -- a tier's resting state is fully
+    visible and the keyframes only hold it dark during its delay. A renderer
+    that ignores CSS therefore shows the finished artwork, not a blank frame."""
+    rules = "".join(
+        f".{cls}{{animation-delay:{d}s;animation-duration:{dur}s}}" for cls, d, dur in REVEAL)
+    return ("@keyframes rv{0%{opacity:0}100%{opacity:1}}"
+            ".rv{animation-name:rv;animation-timing-function:ease-out;"
+            "animation-fill-mode:backwards;animation-iteration-count:1}"
+            + rules +
+            "@media (prefers-reduced-motion:reduce){.rv{animation:none}}")
+
+
+def scene_tier(x: int, y: int, w: int, h: int) -> str:
+    ix0, iy0, ix1, iy1 = INTERIOR
+    outside = x + w <= ix0 or x >= ix1 or y + h <= iy0 or y >= iy1
+    return "scene-frame" if outside else "scene-room"
+
+
+def render_svg(rects, tier_extra: Dict[str, List[str]] = None, style: str = "") -> str:
     """Emit the traced scene, optionally with the phase-2 animation layer.
 
-    When `animated`, some rectangles are lifted out of the base groups into
-    animated ones. Because the rectangles are disjoint, that regrouping cannot
-    change a rendered pixel -- the build asserts the animated and static files
-    replay to identical buffers.
+    When animated, some rectangles are lifted out of the base region groups
+    into separate idle-animated ones (`tier_extra`, keyed by reveal tier).
+    Because the rectangles are disjoint, that regrouping cannot change a
+    rendered pixel -- the build asserts the animated and static files replay to
+    identical buffers.
+
+    Every region's base content AND every idle-animated overlay that visually
+    belongs to it are wrapped together in ONE outer `<g class="rv rv-X">` per
+    reveal tier. This is not cosmetic: an SVG group's own opacity animation
+    multiplies with its children's, so nesting the LED/hologram/lamp pulse
+    groups inside the tier wrapper makes them fade in with their surroundings
+    and then, once the one-shot reveal finishes and the wrapper settles at
+    opacity 1, their own idle animation (already delayed past REVEAL_END) takes
+    over untouched. Emitting them as flat siblings instead -- the first
+    version of this -- left the hologram and every LED at full brightness from
+    t=0, ignoring the reveal completely; caught by simulating the reveal
+    frame-by-frame, not by eye.
     """
+    tier_extra = tier_extra or {}
     buckets: Dict[str, Dict[str, List[Tuple[int, int, int, int]]]] = {}
     for x, y, w, h, col in rects:
         hexcol = f"#{col[0]:02x}{col[1]:02x}{col[2]:02x}"
-        buckets.setdefault(region_of(x, y, w, h), {}).setdefault(hexcol, []).append((x, y, w, h))
+        name = region_of(x, y, w, h)
+        if name == "scene":
+            name = scene_tier(x, y, w, h)
+        buckets.setdefault(name, {}).setdefault(hexcol, []).append((x, y, w, h))
 
     px = GRID * SCALE
     parts: List[str] = [
@@ -184,18 +252,37 @@ def render_svg(rects, extra: Sequence[str] = (), style: str = "") -> str:
         f'around a glowing server core with its architecture projected above it">'
     ]
     if style:
-        parts.append(f"<style>{style}</style>")
-    # "scene" first so the named regions are easy to find at the end of the file
-    for name in ["scene"] + [r[0] for r in REGIONS]:
-        by_colour = buckets.get(name)
-        if not by_colour:
+        parts.append(f"<style>{style}{reveal_css()}</style>")
+        # opaque backdrop so fading tiers emerge from black rather than from the
+        # page. The trace covers all 320x320, so at full opacity this is hidden.
+        parts.append(f'<rect width="{GRID}" height="{GRID}" fill="#000"/>')
+
+    # group region names by their reveal tier, in REVEAL's own order; regions
+    # are disjoint so the emission order here has no effect on the final pixels
+    regions_by_tier: Dict[str, List[str]] = {}
+    for name in ["scene-frame", "scene-room"] + [r[0] for r in REGIONS]:
+        regions_by_tier.setdefault(TIER[name], []).append(name)
+
+    for tier_cls, _delay, _dur in REVEAL:
+        region_names = regions_by_tier.get(tier_cls, [])
+        overlay = tier_extra.get(tier_cls, [])
+        region_body: List[str] = []
+        for name in region_names:
+            by_colour = buckets.get(name)
+            if not by_colour:
+                continue
+            region_body.append(f'<g id="{name}">')
+            for hexcol, items in by_colour.items():
+                d = "".join(f"M{x} {y}h{w}v{h}h-{w}z" for x, y, w, h in items)
+                region_body.append(f'<path fill="{hexcol}" d="{d}"/>')
+            region_body.append("</g>")
+        if not region_body and not overlay:
             continue
-        parts.append(f'<g id="{name}">')
-        for hexcol, items in by_colour.items():
-            d = "".join(f"M{x} {y}h{w}v{h}h-{w}z" for x, y, w, h in items)
-            parts.append(f'<path fill="{hexcol}" d="{d}"/>')
+        wrapper_cls = f' class="rv {tier_cls}"' if style else ""
+        parts.append(f'<g id="{tier_cls}"{wrapper_cls}>')
+        parts.extend(region_body)
+        parts.extend(overlay)
         parts.append("</g>")
-    parts.extend(extra)
     parts.append("</svg>")
     return "".join(parts)
 
@@ -258,7 +345,17 @@ def audit_animation(svg: str) -> None:
     if "prefers-reduced-motion" not in style:
         raise ValueError("reduced-motion fallback missing")
     # every keyframe list must close on the value it opens with, or the loop
-    # visibly snaps at the boundary
+    # visibly snaps at the boundary -- except a one-shot animation (iteration-
+    # count:1), which never returns to its start and so has no seam to snap at.
+    # A one-shot name is detected by finding "iteration-count:1" in the same
+    # rule body that names it via animation-name.
+    oneshot = set()
+    for sel, decls in re.findall(r"([^{}]+)\{([^}]*)\}", style):
+        if "@" in sel:
+            continue
+        m = re.search(r"animation-name:\s*([\w-]+)", decls)
+        if m and "iteration-count:1" in decls.replace(" ", ""):
+            oneshot.add(m.group(1))
     for name, body in re.findall(r"@keyframes\s*([\w-]+)\s*\{((?:[^{}]*\{[^}]*\})*)\}", style):
         at: Dict[float, str] = {}
         for sel, decls in re.findall(r"([^{}]+)\{([^}]*)\}", body):
@@ -267,6 +364,8 @@ def audit_animation(svg: str) -> None:
                 at[float(pct)] = norm
         if 0.0 not in at or 100.0 not in at:
             raise ValueError(f"@keyframes {name} lacks an explicit 0% or 100% stop")
+        if name in oneshot:
+            continue
         if at[0.0] == at[100.0]:
             continue
         # An element that is fully transparent at both ends is invisible across
@@ -289,8 +388,8 @@ if __name__ == "__main__":
     validate(static_svg, rects, img, animated=False)
     OUT_STATIC.write_text(static_svg)
 
-    rest, extra, style, additive = anim.build_animation(arr, list(rects))
-    anim_svg = render_svg(rest, extra=extra, style=style)
+    rest, tier_extra, style, additive = anim.build_animation(arr, list(rects))
+    anim_svg = render_svg(rest, tier_extra=tier_extra, style=style)
     audit_animation(anim_svg)
     for b in ("<image", "base64", "<filter", "Gradient", "<script"):
         if b in anim_svg:
