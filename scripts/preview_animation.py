@@ -100,8 +100,19 @@ def ease(p: float, fn: str, steps_n: int = 1) -> float:
     return p * p * (3 - 2 * p)
 
 
-def sample(stops: Sequence[Tuple[float, Dict[str, str]]], p: float) -> Dict[str, str]:
-    """Interpolate opacity, snap everything else to the preceding stop."""
+def sample(stops: Sequence[Tuple[float, Dict[str, str]]], p: float, discrete: bool = False) -> Dict[str, str]:
+    """Interpolate opacity, snap everything else to the preceding stop.
+
+    `discrete` models `steps(1,end)` applied to a MULTI-stop keyframe list --
+    the idiom every toggle animation in this file uses (.tap, .led, .win,
+    .cursor, .scoot) to hard-cut between consecutive keyframe stops instead of
+    blending. Real CSS applies timing functions PER inter-stop interval, not
+    globally across the whole 0-100% animation; when discrete, this returns
+    the preceding stop's value verbatim for the whole interval rather than
+    blending toward the next one, which is what `steps(1,end)` actually does.
+    Non-discrete callers (ease-in-out/linear, and the data packets' own
+    `steps(var(--s),end)` on their single 0%->100% journey) are unaffected.
+    """
     pct = p * 100
     prev = stops[0]
     nxt = stops[-1]
@@ -112,6 +123,8 @@ def sample(stops: Sequence[Tuple[float, Dict[str, str]]], p: float) -> Dict[str,
             nxt = (k, d)
             break
     out = dict(prev[1])
+    if discrete:
+        return out
     if nxt[0] > prev[0] and "opacity" in prev[1] and "opacity" in nxt[1]:
         t = (pct - prev[0]) / (nxt[0] - prev[0])
         out["opacity"] = str(float(prev[1]["opacity"]) + t * (float(nxt[1]["opacity"]) - float(prev[1]["opacity"])))
@@ -243,8 +256,29 @@ def _own_state(decls: Dict[str, str], kf: Dict, t: float) -> Tuple[float, int, i
             p = min(1.0, p)
             fnraw = decls.get("animation-timing-function", "linear")
             sm = re.search(r"--s:\s*(\d+)", ";".join(f"{k}:{v}" for k, v in decls.items()))
-            p = ease(p, fnraw, int(sm.group(1)) if sm else 1)
-            vals = sample(kf[name], p)
+            if sm:
+                # The data packets: steps(var(--s),end) subdivides their single
+                # 0%->100% translate into N discrete hops -- this is the one
+                # place a GLOBAL step-collapse-then-blend is the right model.
+                p = ease(p, fnraw, int(sm.group(1)))
+                vals = sample(kf[name], p)
+            elif fnraw.startswith("steps"):
+                # Every other steps(1,end) use (.tap/.led/.win/.cursor/.scoot)
+                # is a multi-stop hard-cut toggle, not a single global step --
+                # real CSS applies the timing function PER interval between
+                # consecutive keyframe stops, not across the whole animation.
+                # Feed sample() the raw (un-eased) percentage and let it hold
+                # the preceding stop's value for the whole interval, which is
+                # what steps(1,end) actually does. Feeding this through the
+                # old global ease() first collapsed almost the entire cycle to
+                # the FIRST keyframe's value and only ever reached the LAST
+                # one -- silently hiding every mid-cycle toggle (LEDs looked
+                # permanently lit, taps permanently invisible, and this scoot
+                # never appeared to move at all until this was caught).
+                vals = sample(kf[name], p, discrete=True)
+            else:
+                p = ease(p, fnraw)
+                vals = sample(kf[name], p)
             if "opacity" in vals:
                 alpha = float(vals["opacity"])
             if "transform" in vals:

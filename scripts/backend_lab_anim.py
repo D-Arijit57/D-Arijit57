@@ -90,6 +90,31 @@ HANDS: Dict[str, Tuple[Tuple[int, int, int, int], float, float]] = {
     "designer": ((65, 140, 71, 146), 4.9, REVEAL_END + 3.2),
 }
 
+# name -> (dx, dy) for the second hand frame. Builder/debugger/learner keep the
+# original subtle 1px-down tap (the (0, 1) default below).
+#
+# The engineer was ALSO meant to get a larger reach toward their diagnostic
+# device, but their hand sits directly under their chin -- hand_frame2's
+# backfill heals the vacated spot by sampling "the colour directly above in
+# the same column", and directly above this particular hand is more face, not
+# background. A (-2, 2) shift there smeared a chunk of cheek/jaw loose from
+# the face (caught by rendering the actual excursion frame, not by eye on the
+# resting artwork -- the resting frame never shows the second sprite frame at
+# all). So the engineer keeps the safe (0, 1) default; only the designer's
+# reach (confirmed clean the same way) is widened.
+HAND_REACH: Dict[str, Tuple[int, int]] = {
+    "designer": (1, 2),
+}
+
+# The debugger's seated silhouette + chair, tight enough to mostly exclude the
+# cable loops and monitor edge around it (read off a brightened, gridded crop
+# of the region). A translate this small (2px) makes any residual background
+# sliver at the box's edge imperceptible -- verified visually after building,
+# not assumed.
+DEBUGGER_BODY_BOX: Tuple[int, int, int, int] = (200, 127, 232, 186)
+SCOOT_DUR: float = 17.0                 # long and non-aligning with everything else
+SCOOT_DELAY: float = REVEAL_END + 4.0
+
 # packets: (class, start x, start y, dx, dy, steps, duration, delay)
 PACKETS: Tuple[Tuple[str, int, int, int, int, int, float, float], ...] = (
     ("pk-stem",  152, 125,   0,  6, 6, 2.4, REVEAL_END + 0.0),
@@ -312,12 +337,15 @@ def group_svg(rects: Sequence[Rect], gid: str, cls: str = "", style: str = "") -
 
 # ---- two-frame hand flip ---------------------------------------------------
 
-def hand_frame2(a: np.ndarray, mask: Mask, dy: int = 1) -> List[Rect]:
-    """Build the second frame of a hand: erase, then redraw one pixel lower.
+def hand_frame2(a: np.ndarray, mask: Mask, dx: int = 0, dy: int = 1) -> List[Rect]:
+    """Build the second frame of a hand: erase, then redraw shifted by (dx, dy).
 
     Vacated pixels are refilled with the colour immediately above the hand in
     the same column -- sampled from the artwork itself, so the fill matches the
-    desk/device the hand rests on rather than being a guessed flat colour.
+    desk/device the hand rests on rather than being a guessed flat colour. That
+    backfill is keyed to the ORIGINAL position regardless of dx, so widening the
+    reach (a larger dx/dy) only changes where the redrawn hand lands, not how
+    the vacated spot is healed.
     """
     ys, xs = np.where(mask)
     if len(xs) == 0:
@@ -330,7 +358,7 @@ def hand_frame2(a: np.ndarray, mask: Mask, dy: int = 1) -> List[Rect]:
         for y in col:
             px[(int(x), int(y))] = bg
     for y, x in zip(ys, xs):
-        px[(int(x), int(y) + dy)] = tuple(int(v) for v in a[y, x])
+        px[(int(x) + dx, int(y) + dy)] = tuple(int(v) for v in a[y, x])
 
     # run-merge the patch horizontally so it stays a handful of rects
     out: List[Rect] = []
@@ -366,6 +394,7 @@ def css(led_specs: Sequence[Tuple[float, float]], win_specs: Sequence[Tuple[floa
 @keyframes codeLine{0%,100%{opacity:1}40%,52%{opacity:.35}}
 @keyframes tap2{0%,10%{opacity:0}14%,24%{opacity:1}28%,44%{opacity:0}48%,58%{opacity:1}62%,100%{opacity:0}}
 @keyframes tap1{0%,58%{opacity:0}64%,76%{opacity:1}82%,100%{opacity:0}}
+@keyframes scoot{0%,82%{transform:translate(0,0)}86%,94%{transform:translate(2px,-1px)}100%{transform:translate(0,0)}}
 @keyframes pkStem{0%,6%{opacity:0;transform:translate(0,0)}12%{opacity:1}70%{opacity:1}
   76%,100%{opacity:0;transform:translate(0,6px)}}
 @keyframes pkLeft{0%,6%{opacity:0;transform:translate(0,0)}12%{opacity:1}70%{opacity:1}
@@ -383,11 +412,13 @@ def css(led_specs: Sequence[Tuple[float, float]], win_specs: Sequence[Tuple[floa
 .logline{animation:logLine 6.7s ease-in-out infinite}
 .codeline{animation:codeLine 5.3s ease-in-out infinite}
 .tap{animation-timing-function:steps(1,end);animation-iteration-count:infinite;opacity:0}
+.scoot{animation-timing-function:steps(1,end);animation-iteration-count:infinite}
 .pk{opacity:0;animation-timing-function:steps(var(--s),end);animation-iteration-count:infinite}
 
 @media (prefers-reduced-motion:reduce){
   .holo,.node,.led,.ledSoft,.cursor,.lamp,.win,.logline,.codeline{animation:none;opacity:1}
   .tap,.pk{animation:none;opacity:0}
+  .scoot{animation:none}
 }
 """.strip()
 
@@ -512,22 +543,55 @@ def build_animation(a: np.ndarray, rects: List[Rect]):
         tier_groups["rv-fixtures"].append(f'<g id="anim-window">{"".join(win_bodies)}</g>')
 
     # --- hands: additive two-frame patches (base layer untouched) -----------
+    # The debugger's hand is pulled out of the shared bucket below and nested
+    # inside their chair-scoot wrapper instead, so hand and body translate
+    # together -- CSS opacity/transform compose multiplicatively through
+    # nesting (see render_svg's docstring in make_backend_lab.py), so the
+    # hand keeps its own independent typing-tap timing while inheriting
+    # whatever the scoot is doing at that instant.
     hand_bodies: List[str] = []
+    debugger_hand_svg = ""
     for name, (box, dur, delay) in HANDS.items():
         m = skin_mask(a, box)
-        frame2 = hand_frame2(a, m, dy=1)
+        dx, dy = HAND_REACH.get(name, (0, 1))
+        frame2 = hand_frame2(a, m, dx=dx, dy=dy)
         if not frame2:
             continue
         additive.extend(frame2)
         kind = "tap2" if name in ("builder", "debugger") else "tap1"
-        hand_bodies.append(group_svg(
+        svg = group_svg(
             frame2, f"anim-hand-{name}", "tap",
-            f"animation-name:{kind};animation-duration:{dur}s;animation-delay:{delay}s"))
+            f"animation-name:{kind};animation-duration:{dur}s;animation-delay:{delay}s")
+        if name == "debugger":
+            debugger_hand_svg = svg
+        else:
+            hand_bodies.append(svg)
     if hand_bodies:
         tier_groups["rv-chars"].append(f'<g id="anim-hands">{"".join(hand_bodies)}</g>')
     # the hands' second frame is new geometry drawn only at animation time, so
     # it has nothing behind it to fade from black -- it is not part of `faded`
     # and gets no backing rect.
+
+    # --- debugger: a short chair-scoot, body + hand moving as one unit ------
+    # DEBUGGER_BODY_BOX is a plain bounding box, not a colour mask -- lift()
+    # only takes whole rects that fall fully inside it, exactly like every
+    # other lift() call, so this works unchanged even though the "mask" here
+    # is geometric rather than colour-derived.
+    body_mask = _blank(a)
+    bx0, by0, bx1, by1 = DEBUGGER_BODY_BOX
+    body_mask[by0:by1, bx0:bx1] = True
+    body_lifted, rest = lift(rest, body_mask)
+    if body_lifted:
+        mark(tier_faded["rv-chars"], body_lifted)
+        scoot_inner = group_svg(body_lifted, "anim-debugger-body") + debugger_hand_svg
+        tier_groups["rv-chars"].append(
+            f'<g id="anim-debugger-scoot" class="scoot" '
+            f'style="animation-name:scoot;animation-duration:{SCOOT_DUR}s;'
+            f'animation-delay:{SCOOT_DELAY}s">{scoot_inner}</g>')
+    elif debugger_hand_svg:
+        # DEBUGGER_BODY_BOX matched nothing (should not happen against the
+        # current artwork) -- degrade to "no scoot" rather than "no hand".
+        tier_groups["rv-chars"].append(f'<g id="anim-hand-debugger-fallback">{debugger_hand_svg}</g>')
 
     # --- data packets (the only other new geometry) --------------------------
     holo_px = a[holo]
