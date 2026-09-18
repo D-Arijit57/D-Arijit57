@@ -31,12 +31,11 @@ from typing import List, Tuple
 
 # ---- content (single source of truth) --------------------------------------
 NAME = "Arijit Das"
-ROLE = "Backend + AI Engineer"
+ROLE = "Backend Engineer"
 CURRENT = "American Chase"
 STACK = [
-    ["Python", "FastAPI", "Node.js", "Express.js"],
-    ["REST APIs", "PostgreSQL", "Docker", "AWS"],
-    ["LangChain", "OpenAI", "HuggingFace"],
+    ["Python", "Django", "Node.js", "DRF"],
+    ["PostgreSQL", "AWS", "Docker"],
 ]
 STATUS = ["Building", "Learning", "Shipping"]
 
