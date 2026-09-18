@@ -35,7 +35,7 @@ ROLE = "Backend Engineer"
 CURRENT = "American Chase"
 STACK = [
     ["Python", "Django", "Node.js", "DRF"],
-    ["PostgreSQL", "AWS", "Docker"],
+    ["PostgreSQL", "AWS", "Docker", "React"],
 ]
 STATUS = ["Building", "Learning", "Shipping"]
 
