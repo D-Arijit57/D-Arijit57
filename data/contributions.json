@@ -1,22 +1,22 @@
 {
   "username": "D-Arijit57",
-  "generated_at": "2026-10-25T11:30:47Z",
+  "generated_at": "2026-10-26T13:04:13Z",
   "range": {
     "start": "2025-10-26",
+    "end": "2026-10-26"
+  },
+  "total_contributions": 2508,
+  "active_days": 225,
+  "avg_per_active_day": 11.1,
+  "current_streak": {
+    "length": 122,
+    "start": "2026-06-26",
     "end": "2026-10-25"
   },
-  "total_contributions": 2507,
-  "active_days": 224,
-  "avg_per_active_day": 11.2,
-  "current_streak": {
-    "length": 121,
-    "start": "2026-06-26",
-    "end": "2026-10-24"
-  },
   "longest_streak": {
-    "length": 121,
+    "length": 122,
     "start": "2026-06-26",
-    "end": "2026-10-24"
+    "end": "2026-10-25"
   },
   "best_day": {
     "date": "2026-06-28",
@@ -73,7 +73,7 @@
     },
     {
       "month": "2026-10",
-      "total": 154
+      "total": 155
     }
   ],
   "days": [
@@ -1535,6 +1535,10 @@
     },
     {
       "date": "2026-10-25",
+      "count": 1
+    },
+    {
+      "date": "2026-10-26",
       "count": 0
     }
   ]
