@@ -4,7 +4,15 @@
 
 <img src="./assets/contrib-heatmap.svg" width="860"/>
 
-<br><br>
+<br>
+
+<a href="https://drive.google.com/uc?export=download&id=1RbU5K27JJkxHVOsnr3gS9xZEQrm7fcKN"><img src="./assets/link-resume.svg" alt="Resume" height="40"/></a>
+<a href="https://arijit-workspace-portfolio.vercel.app/"><img src="./assets/link-portfolio.svg" alt="Portfolio" height="40"/></a>
+<a href="https://www.linkedin.com/in/darijit57"><img src="./assets/link-linkedin.svg" alt="LinkedIn" height="40"/></a>
+<a href="https://leetcode.com/u/Arijit_77/"><img src="./assets/link-leetcode.svg" alt="LeetCode" height="40"/></a>
+<a href="mailto:dasarijit5704@gmail.com"><img src="./assets/link-email.svg" alt="Email" height="40"/></a>
+
+<br>
 
 <h3><code>arijit@github:~$ whoami</code></h3>
 
@@ -21,20 +29,6 @@
 
 </tr>
 </table>
-
-<br>
-
-<h3><code>arijit@github:~$ ./contact.sh</code></h3>
-
-<a href="https://drive.google.com/uc?export=download&id=1RbU5K27JJkxHVOsnr3gS9xZEQrm7fcKN">Resume</a>
-&nbsp;·&nbsp;
-<a href="https://arijit-workspace-portfolio.vercel.app/">Portfolio</a>
-&nbsp;·&nbsp;
-<a href="https://www.linkedin.com/in/darijit57">LinkedIn</a>
-&nbsp;·&nbsp;
-<a href="https://leetcode.com/u/Arijit_77/">LeetCode</a>
-&nbsp;·&nbsp;
-<a href="mailto:dasarijit5704@gmail.com">Email</a>
 
 </div>
 
