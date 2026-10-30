@@ -33,9 +33,9 @@ SRC: Path = Path(sys.argv[1]) if len(sys.argv) > 1 else ASSETS_DIR / "source-pre
 OUT: Path = Path(sys.argv[2]) if len(sys.argv) > 2 else ASSETS_DIR / f"{USERNAME}-ascii.svg"
 
 COLS: int = 100
-ROWS: int = 53
+ROWS: int = 85
 CELL_W: int = 8
-CELL_H: int = 15
+CELL_H: float = 15.08  # 85 rows -> canvas 1362 tall = the info card's 600px at the README's 370px width
 RAMP: str = " .`:-=+*cs#%@"  # bright(sparse) -> dark(dense); leading space clears bg
 
 # the prepped image already has bg removed + CLAHE local contrast, so only
@@ -50,7 +50,7 @@ PAD: int = 20
 TITLEBAR_H: int = 30
 STATUS_H: int = 30
 ART_W: int = COLS * CELL_W
-ART_H: int = ROWS * CELL_H
+ART_H: int = round(ROWS * CELL_H)
 CANVAS_W: int = ART_W + PAD * 2
 CANVAS_H: int = TITLEBAR_H + ART_H + STATUS_H + PAD
 
@@ -62,8 +62,8 @@ INK: str = "#c9d1d9"      # the single ascii color (matches Andrew6rant)
 CURSOR: str = "#c9d1d9"
 
 # ---- reveal timing (one-shot; a cursor rasters top -> bottom) -------------
-ROW_DUR: float = 0.11
-STAGGER: float = 0.11       # == ROW_DUR -> a single cursor sweeping down
+ROW_DUR: float = 0.07
+STAGGER: float = 0.07       # == ROW_DUR -> a single cursor sweeping down
 
 # ---- 1. sample the image into a COLS x ROWS grayscale grid ----------------
 im = Image.open(SRC).convert("L")               # grayscale
