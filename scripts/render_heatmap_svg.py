@@ -126,8 +126,10 @@ def render(data):
         f'<linearGradient id="hbg" x1="0" y1="0" x2="0" y2="1">'
         f'<stop offset="0" stop-color="{BG2}"/><stop offset="1" stop-color="{BG}"/></linearGradient>'
         '</defs>',
-        f'<rect width="{canvas_w}" height="{canvas_h}" rx="12" fill="url(#hbg)"/>',
-        f'<rect x="0.5" y="0.5" width="{canvas_w-1}" height="{canvas_h-1}" rx="12" '
+        # square bottom corners: the link strip (make_link_strip.py) docks flush
+        # under this window, so the two read as one terminal with a footer bar.
+        f'<path d="M0 {canvas_h}V12Q0 0 12 0H{canvas_w-12}Q{canvas_w} 0 {canvas_w} 12V{canvas_h}Z" fill="url(#hbg)"/>',
+        f'<path d="M0.5 {canvas_h-0.5}V12Q0.5 0.5 12 0.5H{canvas_w-12}Q{canvas_w-0.5} 0.5 {canvas_w-0.5} 12V{canvas_h-0.5}Z" '
         f'fill="none" stroke="{FRAME}" stroke-width="1" stroke-opacity="0.55"/>',
         f'<line x1="0" y1="{TITLEBAR_H}" x2="{canvas_w}" y2="{TITLEBAR_H}" stroke="{FRAME}" stroke-opacity="0.35"/>',
     ]

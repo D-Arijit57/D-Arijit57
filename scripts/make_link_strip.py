@@ -13,8 +13,11 @@ from __future__ import annotations
 import html
 from pathlib import Path
 
-W, H = 164, 40
-BG, BG2, FRAME = "#0d1117", "#111722", "#30363d"
+N = 5
+W, H = 172, 44          # five cells = 860px, the width the heatmap is shown at
+R = 12                  # the heatmap window's corner radius
+BG = "#0a0e14"          # the heatmap's gradient ends here, so the join is seamless
+FRAME = "#1f6feb"       # the heatmap's frame colour
 TEXT = "#e6edf3"
 MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
 
@@ -60,24 +63,45 @@ LINKS = [
 ]
 
 
-def build(label: str, colour: str, icon) -> str:
+def build(i: int, label: str, colour: str, icon) -> str:
+    """One cell of a single footer bar docked under the heatmap window. No top
+    stroke (the heatmap's bottom edge is the divider); the first and last cell
+    carry the rounded bottom corners and the outer side strokes."""
+    first, last = i == 0, i == N - 1
+    rl = R if first else 0
+    rr = R if last else 0
+    bg = f'M0 0H{W}V{H - rr}' + (f'Q{W} {H} {W - R} {H}' if last else f'V{H}') \
+        + f'H{rl}' + (f'Q0 {H} 0 {H - R}' if first else '') + 'Z'
+    # outer frame: bottom always, left on first, right on last
+    y = H - 0.5
+    d = ''
+    if first:
+        d += f'M0.5 0V{H - R}Q0.5 {y} {R} {y}'
+    else:
+        d += f'M0 {y}'
+    d += f'H{W - R}' if last else f'H{W}'
+    if last:
+        d += f'Q{W - 0.5} {y} {W - 0.5} {H - R}V0'
+    divider = '' if last else (f'<line x1="{W - 0.5}" y1="10" x2="{W - 0.5}" y2="{H - 10}" '
+                               f'stroke="{FRAME}" stroke-opacity="0.25"/>')
+    tw = 20 + 10 + len(label) * 7.8
+    x0 = (W - tw) / 2
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}" '
         f'role="img" font-family="{MONO}" aria-label="{html.escape(label)}">'
-        f'<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">'
-        f'<stop offset="0" stop-color="{BG2}"/><stop offset="1" stop-color="{BG}"/></linearGradient></defs>'
-        f'<rect width="{W}" height="{H}" rx="10" fill="url(#g)"/>'
-        f'<rect x="0.5" y="0.5" width="{W - 1}" height="{H - 1}" rx="10" fill="none" stroke="{FRAME}"/>'
-        f'<g transform="translate(18,10)">{icon(colour)}</g>'
-        f'<text x="48" y="25" font-size="13" font-weight="700" fill="{TEXT}">{html.escape(label)}</text>'
+        f'<path d="{bg}" fill="{BG}"/>'
+        f'<path d="{d}" fill="none" stroke="{FRAME}" stroke-opacity="0.55"/>'
+        f'{divider}'
+        f'<g transform="translate({x0:.1f},{(H - 20) / 2})">{icon(colour)}</g>'
+        f'<text x="{x0 + 30:.1f}" y="{H / 2 + 4.5}" font-size="13" font-weight="700" fill="{TEXT}">{html.escape(label)}</text>'
         f'</svg>'
     )
 
 
 def main() -> None:
-    for slug, label, colour, icon in LINKS:
+    for i, (slug, label, colour, icon) in enumerate(LINKS):
         path = OUT / f"link-{slug}.svg"
-        path.write_text(build(label, colour, icon))
+        path.write_text(build(i, label, colour, icon))
         print("wrote", path)
 
 
