@@ -12,11 +12,11 @@
 <tr>
 
 <td valign="top">
-<img src="./assets/arijit-ascii.svg?v=4" width="370"/>
+<img src="./assets/arijit-ascii.svg?v=5" width="370"/>
 </td>
 
 <td valign="top">
-<img src="./assets/info-card.svg?v=7" width="490"/>
+<img src="./assets/info-card.svg?v=8" width="490"/>
 </td>
 
 </tr>

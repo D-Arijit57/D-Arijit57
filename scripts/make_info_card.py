@@ -33,7 +33,6 @@ ROLE = "Software Engineer"
 CURRENT = "American Chase"
 STACK = ["Python", "Django", "Node.js", "DRF",
          "PostgreSQL", "AWS", "Docker", "React"]
-STATUS = ["Building", "Learning", "Shipping"]
 
 TITLE = "arijit@github: ~"
 
@@ -42,7 +41,7 @@ DATA: Path = HERE.parent / "data" / "contributions.json"
 OUT: Path = HERE.parent / "assets" / "info-card.svg"
 
 # ---- geometry --------------------------------------------------------------
-W, H = 490, 600
+W, H = 490, 692
 PAD = 20
 TITLEBAR_H = 30
 FONT = 12.5
@@ -57,6 +56,13 @@ ACCENT = "#22d3ee"
 GREEN = "#39d353"
 GOLD = "#f2cc60"
 RAMP = ["#161b22", "#0e4429", "#006d32", "#26a641", "#39d353", "#69f0a0"]
+
+# (metric, what it was, where) -- picked from the resume, engineering results only
+HIGHLIGHTS = [
+    ("150x", "faster list queries, 46 \u2192 0.3 ms", "Lattice", GREEN),
+    ("8h outage", "customer API restored", "American Chase", ACCENT),
+    ("3.5s\u2192140ms", "p50 latency, 27 \u2192 101 req/s", "RakshaChakra", GOLD),
+]
 
 MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
 
@@ -94,15 +100,13 @@ CSS = """
 @keyframes print{from{opacity:0}to{opacity:1}}
 @keyframes grow{from{transform:scaleY(.02)}to{transform:scaleY(1)}}
 @keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
-@keyframes pulse{0%{r:3;opacity:.9}100%{r:9;opacity:0}}
 @keyframes glow{from{opacity:.6}to{opacity:1}}
 .ln{animation:print .3s ease-out backwards}
 .bar{animation:grow .9s cubic-bezier(.2,.8,.2,1) backwards}
 .rise{animation:rise .5s cubic-bezier(.2,.8,.2,1) backwards}
-.ring{animation:pulse 1.8s ease-out infinite}
 .peak{animation:glow 1.4s ease-in-out 1.6s infinite alternate}
 @media (prefers-reduced-motion:reduce){
-  .ln,.bar,.rise,.ring,.peak{animation:none}
+  .ln,.bar,.rise,.peak{animation:none}
 }
 """.strip()
 
@@ -164,15 +168,12 @@ def main() -> None:
         n += 1
 
     # ---- profile ------------------------------------------------------------
-    status_txt = " \u2022 ".join(STATUS)
     line(76, f'<tspan fill="{TEXT}" font-size="21" font-weight="700">{esc(NAME)}</tspan>')
     line(102, f'<tspan fill="{GOLD}">{esc(ROLE)}</tspan><tspan fill="{MUTED}"> @ </tspan>'
               f'<tspan fill="{ACCENT}">{esc(CURRENT)}</tspan>')
-    line(126, f'<tspan fill="{GREEN}">\u25cf {esc(status_txt)}</tspan>')
-    p.append(f'<circle class="ring" cx="{PAD + 3.5}" cy="122" r="3" fill="none" stroke="{GREEN}" stroke-width="1.2"/>')
 
     # ---- stats --------------------------------------------------------------
-    section(176, "stats")
+    section(152, "stats")
     stats = [
         (f'{s["total_contributions"]:,}', "contributions", GREEN),
         (str(s["active_days"]), "active days", ACCENT),
@@ -182,13 +183,22 @@ def main() -> None:
     for i, (num, label, col) in enumerate(stats):
         x = PAD + i * 113
         p.append(f'<g class="ln" style="animation-delay:{0.1 + n * 0.12 + i * 0.08:.2f}s">'
-                 f'<text x="{x}" y="214" font-size="22" font-weight="700" fill="{col}">{esc(num)}</text>'
-                 f'<text x="{x}" y="233" font-size="10" fill="{MUTED}">{esc(label)}</text></g>')
+                 f'<text x="{x}" y="190" font-size="22" font-weight="700" fill="{col}">{esc(num)}</text>'
+                 f'<text x="{x}" y="209" font-size="10" fill="{MUTED}">{esc(label)}</text></g>')
     n += 1
 
+    # ---- highlights ---------------------------------------------------------
+    section(262, "highlights")
+    for i, (metric, what, where, col) in enumerate(HIGHLIGHTS):
+        y = 288 + i * 24
+        line(y, f'<tspan fill="{col}" font-weight="700">{esc(metric)}</tspan>')
+        p.append(f'<g class="ln" style="animation-delay:{0.1 + (n - 1) * 0.12:.2f}s">'
+                 f'<text x="{PAD + 112}" y="{y}" font-size="11.5" xml:space="preserve">'
+                 f'<tspan fill="{INK}">{esc(what)}</tspan><tspan fill="{MUTED}"> \u00b7 {esc(where)}</tspan></text></g>')
+
     # ---- monthly 3D bars ----------------------------------------------------
-    section(286, "contributions / month", f"synced {synced}")
-    base, max_h = 424, 104
+    section(380, "contributions / month", f"synced {synced}")
+    base, max_h = 518, 104
     p.append(f'<g class="ln" style="animation-delay:.9s">'
              f'{box(PAD - 2, base, W - PAD * 2 + 2, 7, 7, "#21262d", "#30363d", "#161b22")}</g>')
     slot = (W - PAD * 2 - 14) / len(monthly)
@@ -210,13 +220,13 @@ def main() -> None:
             f'text-anchor="middle">{month_label(ym)}</text>')
 
     # ---- stack blocks -------------------------------------------------------
-    section(488, "stack")
+    section(582, "stack")
     bw2, bh, bd2 = 96, 24, 6
     g2 = (W - PAD * 2 - bd2 - 4 * bw2) / 3
     for i, name in enumerate(STACK):
         col, row = i % 4, i // 4
         bx = PAD + col * (bw2 + g2)
-        by = 514 + row * 40
+        by = 608 + row * 40
         p.append(
             f'<g class="rise" style="animation-delay:{1.9 + i * 0.07:.2f}s">'
             f'{box(bx, by, bw2, bh, bd2, "#161b22", mix("#161b22", GREEN, 0.28), "#0a0d12", GREEN)}'
@@ -232,7 +242,7 @@ def main() -> None:
     for banned in ("<image", "base64", "<script"):
         if banned in svg:
             raise SystemExit(f"unexpected construct: {banned}")
-    last_block = 514 + 40 + bh
+    last_block = 608 + 40 + bh
     if last_block > H - 14:
         raise SystemExit(f"stack overflows the window: {last_block} vs {H}")
 
