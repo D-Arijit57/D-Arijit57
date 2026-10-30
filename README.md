@@ -22,5 +22,17 @@
 </tr>
 </table>
 
+<br>
+
+<h3><code>arijit@github:~$ ./contact.sh</code></h3>
+
+<a href="https://arijit-workspace-portfolio.vercel.app/">Portfolio</a>
+&nbsp;·&nbsp;
+<a href="https://www.linkedin.com/in/darijit57">LinkedIn</a>
+&nbsp;·&nbsp;
+<a href="https://leetcode.com/u/Arijit_77/">LeetCode</a>
+&nbsp;·&nbsp;
+<a href="mailto:dasarijit5704@gmail.com">Email</a>
+
 </div>
 
