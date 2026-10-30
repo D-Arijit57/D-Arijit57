@@ -33,9 +33,9 @@ SRC: Path = Path(sys.argv[1]) if len(sys.argv) > 1 else ASSETS_DIR / "source-pre
 OUT: Path = Path(sys.argv[2]) if len(sys.argv) > 2 else ASSETS_DIR / f"{USERNAME}-ascii.svg"
 
 COLS: int = 100
-ROWS: int = 99
+ROWS: int = 85
 CELL_W: int = 8
-CELL_H: float = 15.06  # 99 rows -> canvas 1571 tall = the info card's 692px at the README's 370px width
+CELL_H: float = 15.08  # 85 rows -> canvas 1362 tall = the info card's 600px at the README's 370px width
 RAMP: str = " .`:-=+*cs#%@"  # bright(sparse) -> dark(dense); leading space clears bg
 
 # the prepped image already has bg removed + CLAHE local contrast, so only
