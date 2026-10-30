@@ -1,10 +1,16 @@
 """
-Build the slim link strip that sits under the contribution graph: one small
-pill per link (icon + heading), each its own SVG so the README can wrap every
-one in a real <a>. Links inside an SVG shown through <img> are not clickable,
-so the clickability lives in the README, not here.
+Build the thin link strip under the contribution graph: one ruled line with
+five small items (icon + lowercase label), no window chrome. It is meant
+to be read as a quiet row between the graph and the portrait/card, not as a
+component of its own -- so the icons and labels stay small, the
+rules use the same hairline as the info card's section dividers, and there is
+no fill, so it sits on the page background.
 
-Same window frame, colours and monospace stack as the other assets.
+Colours are mid-greys with partial opacity so the strip reads on both GitHub's
+light and dark themes (the other assets are fixed-dark windows).
+
+It is five SVGs, one per link, stacked edge to edge, because links inside an
+SVG shown through <img> are not clickable -- the README wraps each in an <a>.
 
   python scripts/make_link_strip.py
 """
@@ -14,34 +20,33 @@ import html
 from pathlib import Path
 
 N = 5
-W, H = 172, 44          # five cells = 860px, the width the heatmap is shown at
-R = 12                  # the heatmap window's corner radius
-BG = "#0a0e14"          # the heatmap's gradient ends here, so the join is seamless
-FRAME = "#1f6feb"       # the heatmap's frame colour
-TEXT = "#e6edf3"
+GAP = 10                # clear space above the rule, so it does not touch the graph above
+W, H = 172, 30 + GAP    # five cells = 860px, the width the other assets are shown at
+# each link takes one of the accents the heatmap and info card already use
+GREEN, CYAN, BLUE, GOLD, VIOLET = "#39d353", "#22d3ee", "#58a6ff", "#f2cc60", "#a990f4"
+RULE = "#8b949e"   # the rules stay a neutral grey
+RULE_OPACITY = 0.35
 MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
 
-GREEN, ACCENT, BLUE, GOLD, INK = "#39d353", "#22d3ee", "#58a6ff", "#f2cc60", "#c9d1d9"
-
 OUT = Path(__file__).resolve().parent.parent / "assets"
+S = 0.7                 # icons are drawn in a 20px box; shown at 14px
 
 
-# 20x20 icons drawn at (0,0); colour passed in
+# 20x20 icons, all in the one muted colour
 def resume(c):
-    return (f'<path d="M4 1.5h8l4 4v13H4z" fill="none" stroke="{c}" stroke-width="1.5" stroke-linejoin="round"/>'
-            f'<path d="M12 1.5v4h4" fill="none" stroke="{c}" stroke-width="1.5" stroke-linejoin="round"/>'
-            f'<path d="M7 10h6M7 13h6M7 16h4" stroke="{c}" stroke-width="1.4" stroke-linecap="round"/>')
+    return (f'<path d="M4 1.5h8l4 4v13H4z" fill="none" stroke="{c}" stroke-width="1.6" stroke-linejoin="round"/>'
+            f'<path d="M7 10h6M7 13h6M7 16h4" stroke="{c}" stroke-width="1.5" stroke-linecap="round"/>')
 
 
 def portfolio(c):
-    return (f'<circle cx="10" cy="10" r="8" fill="none" stroke="{c}" stroke-width="1.5"/>'
-            f'<ellipse cx="10" cy="10" rx="3.6" ry="8" fill="none" stroke="{c}" stroke-width="1.4"/>'
-            f'<path d="M2 10h16" stroke="{c}" stroke-width="1.4"/>')
+    return (f'<circle cx="10" cy="10" r="8" fill="none" stroke="{c}" stroke-width="1.6"/>'
+            f'<ellipse cx="10" cy="10" rx="3.6" ry="8" fill="none" stroke="{c}" stroke-width="1.5"/>'
+            f'<path d="M2 10h16" stroke="{c}" stroke-width="1.5"/>')
 
 
 def linkedin(c):
-    return (f'<rect x="1.5" y="1.5" width="17" height="17" rx="3" fill="{c}"/>'
-            f'<text x="10" y="14.6" font-size="11" font-weight="700" text-anchor="middle" fill="{BG}">in</text>')
+    return (f'<rect x="1.5" y="1.5" width="17" height="17" rx="3" fill="none" stroke="{c}" stroke-width="1.6"/>'
+            f'<text x="10" y="14.4" font-size="10.5" font-weight="700" text-anchor="middle" fill="{c}">in</text>')
 
 
 def leetcode(c):
@@ -50,59 +55,41 @@ def leetcode(c):
 
 
 def email(c):
-    return (f'<rect x="1.5" y="4" width="17" height="12" rx="2" fill="none" stroke="{c}" stroke-width="1.5"/>'
-            f'<path d="M2.5 5.5L10 11l7.5-5.5" fill="none" stroke="{c}" stroke-width="1.5" stroke-linejoin="round"/>')
+    return (f'<rect x="1.5" y="4" width="17" height="12" rx="2" fill="none" stroke="{c}" stroke-width="1.6"/>'
+            f'<path d="M2.5 5.5L10 11l7.5-5.5" fill="none" stroke="{c}" stroke-width="1.6" stroke-linejoin="round"/>')
 
 
 LINKS = [
-    ("resume", "Resume", GREEN, resume),
-    ("portfolio", "Portfolio", ACCENT, portfolio),
-    ("linkedin", "LinkedIn", BLUE, linkedin),
-    ("leetcode", "LeetCode", GOLD, leetcode),
-    ("email", "Email", INK, email),
+    ("resume", "resume", resume, GREEN),
+    ("portfolio", "portfolio", portfolio, CYAN),
+    ("linkedin", "linkedin", linkedin, BLUE),
+    ("leetcode", "leetcode", leetcode, GOLD),
+    ("email", "email", email, VIOLET),
 ]
 
 
-def build(i: int, label: str, colour: str, icon) -> str:
-    """One cell of a single footer bar docked under the heatmap window. No top
-    stroke (the heatmap's bottom edge is the divider); the first and last cell
-    carry the rounded bottom corners and the outer side strokes."""
-    first, last = i == 0, i == N - 1
-    rl = R if first else 0
-    rr = R if last else 0
-    bg = f'M0 0H{W}V{H - rr}' + (f'Q{W} {H} {W - R} {H}' if last else f'V{H}') \
-        + f'H{rl}' + (f'Q0 {H} 0 {H - R}' if first else '') + 'Z'
-    # outer frame: bottom always, left on first, right on last
-    y = H - 0.5
-    d = ''
-    if first:
-        d += f'M0.5 0V{H - R}Q0.5 {y} {R} {y}'
-    else:
-        d += f'M0 {y}'
-    d += f'H{W - R}' if last else f'H{W}'
-    if last:
-        d += f'Q{W - 0.5} {y} {W - 0.5} {H - R}V0'
-    divider = '' if last else (f'<line x1="{W - 0.5}" y1="10" x2="{W - 0.5}" y2="{H - 10}" '
-                               f'stroke="{FRAME}" stroke-opacity="0.25"/>')
-    tw = 20 + 10 + len(label) * 7.8
+def cell(i: int, label: str, icon, colour: str) -> str:
+    last = i == N - 1
+    rule = (f'<line x1="0" y1="{GAP + 0.5}" x2="{W}" y2="{GAP + 0.5}"/>'
+            f'<line x1="0" y1="{H - 0.5}" x2="{W}" y2="{H - 0.5}"/>')
+    divider = '' if last else f'<line x1="{W - 0.5}" y1="{GAP + 9}" x2="{W - 0.5}" y2="{H - 9}"/>'
+    iw = 20 * S
+    tw = iw + 8 + len(label) * 6.6
     x0 = (W - tw) / 2
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}" '
         f'role="img" font-family="{MONO}" aria-label="{html.escape(label)}">'
-        f'<path d="{bg}" fill="{BG}"/>'
-        f'<path d="{d}" fill="none" stroke="{FRAME}" stroke-opacity="0.55"/>'
-        f'{divider}'
-        f'<g transform="translate({x0:.1f},{(H - 20) / 2})">{icon(colour)}</g>'
-        f'<text x="{x0 + 30:.1f}" y="{H / 2 + 4.5}" font-size="13" font-weight="700" fill="{TEXT}">{html.escape(label)}</text>'
+        f'<g stroke="{RULE}" stroke-opacity="{RULE_OPACITY}">{rule}{divider}</g>'
+        f'<g transform="translate({x0:.1f},{(GAP + H - iw) / 2:.1f}) scale({S})">{icon(colour)}</g>'
+        f'<text x="{x0 + iw + 8:.1f}" y="{(GAP + H) / 2 + 3.8}" font-size="11" fill="{colour}">{html.escape(label)}</text>'
         f'</svg>'
     )
 
 
 def main() -> None:
-    for i, (slug, label, colour, icon) in enumerate(LINKS):
-        path = OUT / f"link-{slug}.svg"
-        path.write_text(build(i, label, colour, icon))
-        print("wrote", path)
+    for i, (slug, label, icon, colour) in enumerate(LINKS):
+        (OUT / f"link-{slug}.svg").write_text(cell(i, label, icon, colour))
+    print("wrote", len(LINKS), "cells")
 
 
 if __name__ == "__main__":
