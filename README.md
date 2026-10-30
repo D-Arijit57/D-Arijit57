@@ -26,6 +26,8 @@
 
 <h3><code>arijit@github:~$ ./contact.sh</code></h3>
 
+<a href="https://drive.google.com/uc?export=download&id=1RbU5K27JJkxHVOsnr3gS9xZEQrm7fcKN">Resume</a>
+&nbsp;·&nbsp;
 <a href="https://arijit-workspace-portfolio.vercel.app/">Portfolio</a>
 &nbsp;·&nbsp;
 <a href="https://www.linkedin.com/in/darijit57">LinkedIn</a>
