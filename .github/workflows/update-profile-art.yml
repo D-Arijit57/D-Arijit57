@@ -32,8 +32,11 @@ jobs:
       - name: Render animated contribution graph SVG
         run: python scripts/render_heatmap_svg.py
 
+      - name: Render 3D stats info card SVG
+        run: python scripts/make_info_card.py
+
       - name: Commit updated art
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "chore: refresh contribution graph [skip ci]"
-          file_pattern: "data/contributions.json assets/contrib-heatmap.svg"
+          file_pattern: "data/contributions.json assets/contrib-heatmap.svg assets/info-card.svg"

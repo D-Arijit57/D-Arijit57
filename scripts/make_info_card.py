@@ -1,223 +1,243 @@
 """
-Build the right-hand card: a macOS Terminal window showing a short shell
-session, sized to sit beside the pixel-art scene in the README.
+Build the right-hand card: a stats card in the same window frame as the other
+two assets in the README (contrib-heatmap.svg and arijit-ascii.svg) -- same
+12px-radius dark window, traffic lights and centred title, same
+muted/green/cyan/gold colours, same monospace stack.
 
-The reference is the native macOS Terminal.app window, not VS Code and not a
-generic "developer terminal" component. That means the chrome is deliberately
-plain -- a dark charcoal window, a flat title bar carrying the traffic lights
-on the left and a centred proxy title, one hairline separator, 10px corners and
-a restrained shadow. Everything else is shell output, and the shell output is
-what supplies the hierarchy: no headings, no key/value widgets, no rules, no
-badges, no progress bars.
+The top half is the profile and headline numbers, set out under small section
+labels. The bottom half is the "3D" part: the monthly bar chart and the stack blocks are oblique boxes -- a front
+face, a lighter top face and a darker right face -- drawn by hand because CSS
+`perspective` does not apply inside an SVG shown through <img>. Bars use the
+contribution-graph ramp from render_heatmap_svg.py.
 
-The palette is not chosen, it is sampled from the supplied reference terminal
-(see the palette block below for how). Each command's output carries its own
-colour there -- cyan prompt, amber role, violet employer, lime status, blue
-bullets -- so this card follows that scheme rather than a single foreground
-grey.
+Numbers come from data/contributions.json (written daily by
+fetch_contributions.py), so the card refreshes with the contribution graph.
 
-Motion is CSS keyframes in an inline <style>, matching the pixel-art scene
-(the previous version of this card used SMIL, which cannot answer
-prefers-reduced-motion). Lines print once on a short stagger and freeze; only
-the block cursor keeps blinking. Nothing retypes and nothing scrolls.
+Motion is CSS keyframes in an inline <style>, like the heatmap: lines print on
+a stagger, bars grow up from the slab and stack blocks rise. Resting state is fully visible (`backwards` fill, no resting
+opacity:0), and prefers-reduced-motion turns every animation off.
 
   python scripts/make_info_card.py
 """
 from __future__ import annotations
 
 import html
+import json
+from datetime import date
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
-# ---- content (single source of truth) --------------------------------------
+# ---- content ---------------------------------------------------------------
 NAME = "Arijit Das"
-ROLE = "Backend Engineer"
+ROLE = "Software Engineer"
 CURRENT = "American Chase"
-STACK = [
-    ["Python", "Django", "Node.js", "DRF"],
-    ["PostgreSQL", "AWS", "Docker", "React"],
-]
+STACK = ["Python", "Django", "Node.js", "DRF",
+         "PostgreSQL", "AWS", "Docker", "React"]
 STATUS = ["Building", "Learning", "Shipping"]
 
-PROMPT = "arijit@github:~$ "
 TITLE = "arijit@github: ~"
 
 HERE: Path = Path(__file__).resolve().parent
+DATA: Path = HERE.parent / "data" / "contributions.json"
 OUT: Path = HERE.parent / "assets" / "info-card.svg"
 
 # ---- geometry --------------------------------------------------------------
-W, H = 480, 376
-WIN_X, WIN_Y = 8, 6
-WIN_W, WIN_H = 464, 356
-RADIUS = 10
-TITLEBAR_H = 28
-PAD_X = 18
+W, H = 490, 600
+PAD = 20
+TITLEBAR_H = 30
 FONT = 12.5
-LINE_H = 18.0
-FIRST_BASELINE = WIN_Y + TITLEBAR_H + 20
 
-# ---- palette ---------------------------------------------------------------
-# Sampled from the supplied reference terminal, not chosen by eye. Thin
-# antialiased glyphs have no dominant colour, so each value is the median of
-# *stroke-interior* pixels only -- the foreground mask eroded by one pixel, so
-# edge blending cannot pull the sample toward the background. Sampling the
-# brightest pixel instead returns antialias overshoot (it reported the prompt
-# as #45ffff rather than its actual #3ce6fc).
-TERM_BG = "#0c1016"      # terminal background
-TITLEBAR = "#1c2025"     # title bar
-SEP = "#0c0f15"          # hairline under the title bar
-TITLE_TXT = "#eff0f1"
-PROMPT_C = "#3ce6fc"     # arijit@github:~$
-CMD = "#f9f9fa"          # the typed command
-NAME_C = "#bdc7d3"       # whoami output
-ROLE_C = "#fdc44f"       # role output
-CURRENT_C = "#a990f4"    # current output
-STACK_C = "#b7c1ce"      # stack items
-BULLET = "#3ba2e4"       # the separator between stack items
-STATUS_C = "#a3ec67"     # status output
-CURSOR = "#6e7681"
-LIGHTS = ("#e54b48", "#efb344", "#64c74b")
+# ---- palette (same values as the heatmap / ascii assets) -------------------
+BG, BG2 = "#0d1117", "#111722"
+FRAME = "#30363d"
+MUTED = "#7d8590"
+TEXT = "#e6edf3"
+INK = "#c9d1d9"
+ACCENT = "#22d3ee"
+GREEN = "#39d353"
+GOLD = "#f2cc60"
+RAMP = ["#161b22", "#0e4429", "#006d32", "#26a641", "#39d353", "#69f0a0"]
 
-MONO = ('"SF Mono", SFMono-Regular, ui-monospace, Menlo, Monaco, '
-        '"Cascadia Mono", "Roboto Mono", "Courier New", monospace')
-
-REVEAL_STEP = 0.055   # per-line stagger
-REVEAL_LEAD = 0.10
-CURSOR_START = 1.25   # after the last line has printed
+MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
 
 
 def esc(s: str) -> str:
     return html.escape(s)
 
 
-def rounded_top(x: float, y: float, w: float, h: float, r: float) -> str:
-    """Path with only the top two corners rounded -- the title bar sits inside
-    the window's rounded rect, so its bottom edge must stay square."""
-    return (f"M{x} {y + h}L{x} {y + r}Q{x} {y} {x + r} {y}"
-            f"L{x + w - r} {y}Q{x + w} {y} {x + w} {y + r}L{x + w} {y + h}Z")
+def mix(a: str, b: str, t: float) -> str:
+    """Blend hex colour a toward b by t (0..1)."""
+    ca = [int(a[i:i + 2], 16) for i in (1, 3, 5)]
+    cb = [int(b[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(x + (y - x) * t):02x}" for x, y in zip(ca, cb))
 
 
-def build_lines() -> List[Tuple[str, List[Tuple[str, str]]]]:
-    """The session, as (kind, spans) where each span is (text, colour)."""
-    def cmd(name: str):
-        return ("cmd", [(PROMPT, PROMPT_C), (name, CMD)])
-
-    def out(text: str, colour: str):
-        return ("out", [(text, colour)])
-
-    def joined(items: List[str], colour: str):
-        spans: List[Tuple[str, str]] = []
-        for i, it in enumerate(items):
-            if i:
-                spans.append((" \u2022 ", BULLET))
-            spans.append((it, colour))
-        return ("out", spans)
-
-    rows: List[Tuple[str, List[Tuple[str, str]]]] = [
-        cmd("whoami"), out(NAME, NAME_C), ("gap", []),
-        cmd("role"), out(ROLE, ROLE_C), ("gap", []),
-        cmd("current"), out(CURRENT, CURRENT_C), ("gap", []),
-        cmd("stack"),
-    ]
-    rows += [joined(group, STACK_C) for group in STACK]
-    rows += [("gap", []), cmd("status"), joined(STATUS, STATUS_C), ("gap", []),
-             ("prompt", [(PROMPT, PROMPT_C)])]
-    return rows
+def box(x: float, y: float, w: float, h: float, d: float, front: str,
+        top: str, side: str, edge: Optional[str] = None) -> str:
+    """Oblique box. (x, y) is the front face's top-left; depth runs up-right."""
+    dx, dy = d, -d * 0.6
+    out = (
+        f'<polygon points="{x + w},{y} {x + w + dx},{y + dy} {x + w + dx},{y + h + dy} {x + w},{y + h}" fill="{side}"/>'
+        f'<polygon points="{x},{y} {x + dx},{y + dy} {x + w + dx},{y + dy} {x + w},{y}" fill="{top}"/>'
+        f'<rect x="{x}" y="{y}" width="{w}" height="{h}" fill="{front}"/>'
+    )
+    if edge:
+        out += f'<line x1="{x}" y1="{y}" x2="{x + w}" y2="{y}" stroke="{edge}" stroke-opacity="0.6"/>'
+    return out
 
 
-def css(n_lines: int) -> str:
-    return f"""
-@keyframes print{{from{{opacity:0}}to{{opacity:1}}}}
-@keyframes blink{{0%,49%{{opacity:1}}50%,99%{{opacity:0}}100%{{opacity:1}}}}
-/* `backwards`, not `forwards`, and no resting opacity:0 -- a line's resting
-   state is visible, and the keyframes only hold it hidden during its delay.
-   With opacity:0 + forwards, any renderer that does not execute CSS shows an
-   empty terminal; this way the session degrades to fully printed. */
-.ln{{animation:print .28s ease-out backwards}}
-.cur{{animation:blink 1.06s steps(1,end) {CURSOR_START}s infinite}}
-@media (prefers-reduced-motion:reduce){{
-  .ln{{animation:none}}
-  .cur{{animation:none;opacity:1}}
-}}
+def solid(x: float, y: float, w: float, h: float, d: float, colour: str) -> str:
+    return box(x, y, w, h, d, colour, mix(colour, "#ffffff", 0.3), mix(colour, "#000000", 0.35))
+
+
+CSS = """
+@keyframes print{from{opacity:0}to{opacity:1}}
+@keyframes grow{from{transform:scaleY(.02)}to{transform:scaleY(1)}}
+@keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulse{0%{r:3;opacity:.9}100%{r:9;opacity:0}}
+@keyframes glow{from{opacity:.6}to{opacity:1}}
+.ln{animation:print .3s ease-out backwards}
+.bar{animation:grow .9s cubic-bezier(.2,.8,.2,1) backwards}
+.rise{animation:rise .5s cubic-bezier(.2,.8,.2,1) backwards}
+.ring{animation:pulse 1.8s ease-out infinite}
+.peak{animation:glow 1.4s ease-in-out 1.6s infinite alternate}
+@media (prefers-reduced-motion:reduce){
+  .ln,.bar,.rise,.ring,.peak{animation:none}
+}
 """.strip()
 
 
+def load_stats() -> dict:
+    return json.loads(DATA.read_text())
+
+
+def month_label(ym: str) -> str:
+    y, m = ym.split("-")
+    return date(int(y), int(m), 1).strftime("%b")
+
+
+def level(v: int, peak: int) -> int:
+    if v == 0:
+        return 0
+    r = v / peak
+    return 1 if r <= .25 else 2 if r <= .5 else 3 if r <= .75 else 4 if r < 1 else 5
+
+
 def main() -> None:
-    rows = build_lines()
-    parts: List[str] = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
-        f'viewBox="0 0 {W} {H}" role="img" font-family=\'{MONO}\' '
-        f'aria-label="macOS Terminal window: whoami {esc(NAME)}, {esc(ROLE)} at {esc(CURRENT)}">',
-        f"<style>{css(len(rows))}</style>",
+    s = load_stats()
+    monthly: List[Tuple[str, int]] = [(m["month"], m["total"]) for m in s["monthly"]]
+    synced = s["generated_at"][:10]
+    streak = s["current_streak"]["length"]
+    peak = max(v for _, v in monthly) or 1
+    p: List[str] = []
+
+    # ---- window chrome, identical to the other two assets -------------------
+    p.append(f'<defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">'
+             f'<stop offset="0" stop-color="{BG2}"/><stop offset="1" stop-color="{BG}"/>'
+             f'</linearGradient></defs>')
+    p.append(f'<rect width="{W}" height="{H}" rx="12" fill="url(#bg)"/>')
+    p.append(f'<rect x="0.5" y="0.5" width="{W - 1}" height="{H - 1}" rx="12" fill="none" stroke="{FRAME}"/>')
+    p.append(f'<line x1="0" y1="{TITLEBAR_H}" x2="{W}" y2="{TITLEBAR_H}" stroke="{FRAME}"/>')
+    for i, col in enumerate(("#ff5f56", "#ffbd2e", "#27c93f")):
+        p.append(f'<circle cx="{PAD + i * 16}" cy="{TITLEBAR_H / 2}" r="5" fill="{col}"/>')
+    p.append(f'<text x="{W / 2}" y="{TITLEBAR_H / 2 + 4}" fill="{MUTED}" font-size="12" '
+             f'text-anchor="middle">{esc(TITLE)}</text>')
+
+    n = 0
+
+    def line(y: float, inner: str) -> None:
+        nonlocal n
+        p.append(f'<g class="ln" style="animation-delay:{0.1 + n * 0.12:.2f}s">'
+                 f'<text x="{PAD}" y="{y}" font-size="{FONT}" xml:space="preserve">{inner}</text></g>')
+        n += 1
+
+    def section(y: float, label: str, right: str = "") -> None:
+        """Small muted label with a hairline running to the right edge."""
+        nonlocal n
+        end = PAD + len(label) * 7.4 + 10
+        rule_end = W - PAD - (len(right) * 6.2 + 10 if right else 0)
+        p.append(f'<g class="ln" style="animation-delay:{0.1 + n * 0.12:.2f}s">'
+                 f'<text x="{PAD}" y="{y}" font-size="10.5" letter-spacing="1.2" fill="{MUTED}">{esc(label.upper())}</text>'
+                 f'<line x1="{end:.1f}" y1="{y - 3.5}" x2="{rule_end:.1f}" y2="{y - 3.5}" stroke="{FRAME}"/>'
+                 + (f'<text x="{W - PAD}" y="{y}" font-size="10" fill="{MUTED}" text-anchor="end">{esc(right)}</text>' if right else "")
+                 + '</g>')
+        n += 1
+
+    # ---- profile ------------------------------------------------------------
+    status_txt = " \u2022 ".join(STATUS)
+    line(76, f'<tspan fill="{TEXT}" font-size="21" font-weight="700">{esc(NAME)}</tspan>')
+    line(102, f'<tspan fill="{GOLD}">{esc(ROLE)}</tspan><tspan fill="{MUTED}"> @ </tspan>'
+              f'<tspan fill="{ACCENT}">{esc(CURRENT)}</tspan>')
+    line(126, f'<tspan fill="{GREEN}">\u25cf {esc(status_txt)}</tspan>')
+    p.append(f'<circle class="ring" cx="{PAD + 3.5}" cy="122" r="3" fill="none" stroke="{GREEN}" stroke-width="1.2"/>')
+
+    # ---- stats --------------------------------------------------------------
+    section(176, "stats")
+    stats = [
+        (f'{s["total_contributions"]:,}', "contributions", GREEN),
+        (str(s["active_days"]), "active days", ACCENT),
+        (f'{streak}d', "current streak", ACCENT),
+        (str(s["best_day"]["count"]), "best day", GOLD),
     ]
+    for i, (num, label, col) in enumerate(stats):
+        x = PAD + i * 113
+        p.append(f'<g class="ln" style="animation-delay:{0.1 + n * 0.12 + i * 0.08:.2f}s">'
+                 f'<text x="{x}" y="214" font-size="22" font-weight="700" fill="{col}">{esc(num)}</text>'
+                 f'<text x="{x}" y="233" font-size="10" fill="{MUTED}">{esc(label)}</text></g>')
+    n += 1
 
-    # Window shadow: concentric translucent rounded rects rather than a blur
-    # filter -- soft enough to read as a macOS drop shadow, and it cannot be
-    # dropped or mis-rasterised the way a filter can be.
-    for i in range(4):
-        g = i * 2
-        parts.append(
-            f'<rect x="{WIN_X - g / 2:.1f}" y="{WIN_Y + 3 + i * 1.5:.1f}" '
-            f'width="{WIN_W + g}" height="{WIN_H}" rx="{RADIUS + g / 2:.1f}" '
-            f'fill="#000" opacity="0.055"/>')
+    # ---- monthly 3D bars ----------------------------------------------------
+    section(286, "contributions / month", f"synced {synced}")
+    base, max_h = 424, 104
+    p.append(f'<g class="ln" style="animation-delay:.9s">'
+             f'{box(PAD - 2, base, W - PAD * 2 + 2, 7, 7, "#21262d", "#30363d", "#161b22")}</g>')
+    slot = (W - PAD * 2 - 14) / len(monthly)
+    bw, bd = 18, 7
+    for i, (ym, v) in enumerate(monthly):
+        bx = PAD + 3 + i * slot
+        h = max(2.0, v / peak * max_h)
+        col = RAMP[level(v, peak)]
+        glow = ' class="peak"' if v == peak else ""
+        delay = 1.0 + i * 0.07
+        p.append(
+            f'<g transform="translate({bx:.1f},{base})">'
+            f'<g class="bar" style="animation-delay:{delay:.2f}s"><g{glow}>'
+            f'{solid(0, -h, bw, h, bd, col)}</g></g></g>'
+            f'<g class="ln" style="animation-delay:{delay + 0.7:.2f}s">'
+            f'<text x="{bx + bw / 2:.1f}" y="{base - h - bd * 0.6 - 5:.1f}" font-size="8.5" '
+            f'fill="{INK}" text-anchor="middle">{v}</text></g>'
+            f'<text x="{bx + bw / 2 + 2:.1f}" y="{base + 24}" font-size="8.5" fill="{MUTED}" '
+            f'text-anchor="middle">{month_label(ym)}</text>')
 
-    # window body + title bar + hairline separator
-    parts.append(f'<rect x="{WIN_X}" y="{WIN_Y}" width="{WIN_W}" height="{WIN_H}" '
-                 f'rx="{RADIUS}" fill="{TERM_BG}"/>')
-    parts.append(f'<path d="{rounded_top(WIN_X, WIN_Y, WIN_W, TITLEBAR_H, RADIUS)}" fill="{TITLEBAR}"/>')
-    parts.append(f'<line x1="{WIN_X}" y1="{WIN_Y + TITLEBAR_H}" x2="{WIN_X + WIN_W}" '
-                 f'y2="{WIN_Y + TITLEBAR_H}" stroke="{SEP}"/>')
+    # ---- stack blocks -------------------------------------------------------
+    section(488, "stack")
+    bw2, bh, bd2 = 96, 24, 6
+    g2 = (W - PAD * 2 - bd2 - 4 * bw2) / 3
+    for i, name in enumerate(STACK):
+        col, row = i % 4, i // 4
+        bx = PAD + col * (bw2 + g2)
+        by = 514 + row * 40
+        p.append(
+            f'<g class="rise" style="animation-delay:{1.9 + i * 0.07:.2f}s">'
+            f'{box(bx, by, bw2, bh, bd2, "#161b22", mix("#161b22", GREEN, 0.28), "#0a0d12", GREEN)}'
+            f'<text x="{bx + bw2 / 2}" y="{by + 16}" font-size="10.5" fill="{INK}" '
+            f'text-anchor="middle">{esc(name)}</text></g>')
 
-    # traffic lights: 12px, 20px apart, first centre ~19px in from the window edge
-    cy = WIN_Y + TITLEBAR_H / 2
-    for i, col in enumerate(LIGHTS):
-        cx = WIN_X + 19 + i * 20
-        parts.append(f'<circle cx="{cx}" cy="{cy}" r="6" fill="{col}"/>')
-        parts.append(f'<circle cx="{cx}" cy="{cy}" r="6" fill="none" stroke="#000" stroke-opacity="0.14"/>')
+    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
+           f'viewBox="0 0 {W} {H}" role="img" font-family="{MONO}" '
+           f'aria-label="{esc(NAME)}, {esc(ROLE)} at {esc(CURRENT)}: '
+           f'{s["total_contributions"]} contributions, {streak} day streak">'
+           f"<style>{CSS}</style>" + "".join(p) + "</svg>")
 
-    parts.append(f'<text x="{W / 2}" y="{cy + 4:.1f}" fill="{TITLE_TXT}" font-size="11.5" '
-                 f'text-anchor="middle">{esc(TITLE)}</text>')
-
-    # subtle outer hairline, the way a dark macOS window edge catches light
-    parts.append(f'<rect x="{WIN_X + 0.5}" y="{WIN_Y + 0.5}" width="{WIN_W - 1}" height="{WIN_H - 1}" '
-                 f'rx="{RADIUS}" fill="none" stroke="#fff" stroke-opacity="0.09"/>')
-
-    # ---- session ----------------------------------------------------------
-    x = WIN_X + PAD_X
-    y = FIRST_BASELINE
-    idx = 0
-    for kind, spans in rows:
-        if kind == "gap":
-            y += LINE_H * 0.6
-            continue
-        delay = REVEAL_LEAD + idx * REVEAL_STEP
-        tspans = "".join(
-            f'<tspan fill="{col}" xml:space="preserve">{esc(t)}</tspan>' for t, col in spans)
-        cursor = ""
-        if kind == "prompt":
-            cx = x + len(PROMPT) * FONT * 0.6
-            cursor = (f'<rect class="cur" x="{cx:.1f}" y="{y - FONT + 2.5:.1f}" '
-                      f'width="{FONT * 0.6:.1f}" height="{FONT:.1f}" fill="{CURSOR}"/>')
-        parts.append(
-            f'<g class="ln" style="animation-delay:{delay:.2f}s">'
-            f'<text x="{x}" y="{y:.1f}" font-size="{FONT}">{tspans}</text>{cursor}</g>')
-        idx += 1
-        y += LINE_H
-
-    parts.append("</svg>")
-    svg = "".join(parts)
-
-    bottom = WIN_Y + WIN_H
-    if y > bottom - 6:
-        raise SystemExit(f"session overflows the window: last baseline {y:.1f} vs {bottom}")
     for banned in ("<image", "base64", "<script"):
         if banned in svg:
             raise SystemExit(f"unexpected construct: {banned}")
+    last_block = 514 + 40 + bh
+    if last_block > H - 14:
+        raise SystemExit(f"stack overflows the window: {last_block} vs {H}")
 
     OUT.write_text(svg)
     print(f"wrote {OUT} {len(svg)} bytes; {W}x{H}")
-    print(f"  {idx} printed lines, last baseline {y:.1f} (window bottom {bottom}), "
-          f"reveal ends {REVEAL_LEAD + (idx - 1) * REVEAL_STEP + 0.28:.2f}s")
 
 
 if __name__ == "__main__":
